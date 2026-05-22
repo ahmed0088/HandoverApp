@@ -644,7 +644,6 @@ body {
   outline: none;
   width: 100%;
   min-height: 36px;
-  height: auto;
   resize: none;
   overflow: hidden;
   transition: border-color .12s, background .12s, box-shadow .12s;

@@ -17,7 +17,7 @@ let isUndoRedo = false;
 // Auto-resize textarea to fit content
 function autoResize(el) {
   if (!el || el.tagName !== 'TEXTAREA') return;
-  el.style.height = 'auto';
+  el.style.height = '0px';
   el.style.height = el.scrollHeight + 'px';
 }
 
@@ -499,8 +499,8 @@ function manualSave() { collectAll(); saveToDB(); showToast('Saved successfully 
 
 // ── Render All ────────────────────────────────────────────────
 function renderAll() {
-  // After render, resize all textareas to fit their content
-  requestAnimationFrame(autoResizeAll);
+  // After render, wait for browser layout then resize all textareas
+  requestAnimationFrame(() => requestAnimationFrame(autoResizeAll));
   setVal('ho_date',     state.meta.date || todayISO());
   setVal('ho_agent',    state.meta.agent);
   setVal('ho_receiver', state.meta.receiver);
