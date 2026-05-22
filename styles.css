@@ -646,6 +646,7 @@ body {
   min-height: 36px;
   resize: none;
   overflow: hidden;
+  box-sizing: border-box;
   transition: border-color .12s, background .12s, box-shadow .12s;
   line-height: 1.5;
   display: block;
