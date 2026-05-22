@@ -14,6 +14,20 @@ let historyStack = [];
 let historyIndex = -1;
 let isUndoRedo = false;
 
+// Auto-resize textarea to fit content
+function autoResize(el) {
+  if (!el || el.tagName !== 'TEXTAREA') return;
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
+function autoResizeAll() {
+  document.querySelectorAll('textarea.cell-textarea, .m-card-field textarea').forEach(autoResize);
+}
+
+// Dirty flag — true when user has unsaved changes
+let isDirty = false;
+
 // Track user typing to prevent Firebase re-renders from interrupting input
 let userIsTyping = false;
 let typingTimer = null;
@@ -412,11 +426,21 @@ function saveToDB() {
     try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
     return;
   }
+  // Fire immediately — caller is responsible for debouncing
+  db.ref(dbPath()).set(saveState).catch(() => showToast('Save failed', true));
+  try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
+  isDirty = false;
+}
+
+// Dirty-flag save: mark as dirty now, save only when user leaves the field
+function markDirty() {
+  if (isLoading || isRestoring) return;
+  isDirty = true;
+  // Safety net: if user never blurs, save after 15 seconds of inactivity
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    db.ref(dbPath()).set(saveState).catch(() => showToast('Save failed', true));
-    try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
-  }, 2500); // debounce: wait for user to pause before writing to Firebase
+    if (isDirty) { collectAll(); saveToDB(); }
+  }, 15000);
 }
 
 function onDateChange() {
@@ -467,7 +491,7 @@ function collectAll() { collectMeta(); collectKpi(); collectNotes(); }
 function autoSave() {
   if (isLoading || isRestoring) return;
   collectAll();
-  saveToDB();
+  markDirty();
   const ad = document.getElementById('agentDisplay'); if (ad) ad.textContent = state.meta.agent||'—';
 }
 
@@ -475,6 +499,8 @@ function manualSave() { collectAll(); saveToDB(); showToast('Saved successfully 
 
 // ── Render All ────────────────────────────────────────────────
 function renderAll() {
+  // After render, resize all textareas to fit their content
+  requestAnimationFrame(autoResizeAll);
   setVal('ho_date',     state.meta.date || todayISO());
   setVal('ho_agent',    state.meta.agent);
   setVal('ho_receiver', state.meta.receiver);
@@ -814,6 +840,13 @@ function setupListeners() {
     }
   });
 
+  // Save on blur — fire when user leaves any input/textarea/select
+  document.addEventListener('focusout', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+      if (isDirty) { collectAll(); saveToDB(); }
+    }
+  }, true);
+
   document.addEventListener('focusout', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
       clearTimeout(typingTimer);
@@ -834,6 +867,8 @@ function setupListeners() {
 
   document.addEventListener('input', e => {
     const el = e.target, id = el.dataset.id, tbl = el.dataset.tbl, field = el.dataset.field;
+    // Auto-resize textarea as user types
+    autoResize(el);
     // Mark user as actively typing — reset the idle timer
     userIsTyping = true;
     clearTimeout(typingTimer);
