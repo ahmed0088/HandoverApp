@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>Front Office Handover</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -30,30 +30,30 @@
       <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="7" r="3"/><path d="M4 17c0-3.314 2.686-6 6-6s6 2.686 6 6"/></svg>
       <strong id="agentDisplay">—</strong>
     </div>
-    <div id="fbStatus" class="connecting"><span class="fb-dot"></span> Connecting…</div>
+    <div id="fbStatus" class="connecting"><span class="fb-dot"></span> <span class="hide-mobile">Connecting…</span></div>
   </div>
 </div>
 
 <div class="navtabs">
   <div class="tab active" id="tab-handover" onclick="showTab('handover')">
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v8a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="2" height="4" rx="1"/></svg>
-    Handover Log
+    <span>Handover</span>
   </div>
   <div class="tab" id="tab-kpi" onclick="showTab('kpi')">
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 15l4-4 3 3 5-6"/></svg>
-    KPIs
+    <span>KPIs</span>
   </div>
   <div class="tab" id="tab-pod" onclick="showTab('pod')">
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="16" height="11" rx="1"/><path d="M6 7V5a4 4 0 018 0v2"/></svg>
-    POD Rooms
+    <span>POD Rooms</span>
   </div>
   <div class="tab" id="tab-notes" onclick="showTab('notes')">
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h12v9l-4 4H4z"/><path d="M8 17v-4h4"/><path d="M7 8h6M7 11h4"/></svg>
-    Notes
+    <span>Notes</span>
   </div>
   <div class="tab" id="tab-summary" onclick="showTab('summary')">
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h14M3 10h14M3 15h9"/></svg>
-    Summary
+    <span>Summary</span>
   </div>
 </div>
 
@@ -68,13 +68,13 @@
       </div>
       <div class="section-header-right">
         <button class="btn btn-outline btn-sm" onclick="window.clearHandover()">
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 4h8M4 7h12l-1.5 9H5.5L4 7zM8 7V5m4 2V5"/></svg>Clear
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 4h8M4 7h12l-1.5 9H5.5L4 7zM8 7V5m4 2V5"/></svg><span class="hide-mobile">Clear</span>
         </button>
         <button class="btn btn-dark btn-sm" onclick="manualSave()">
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 13l3 3 7-7"/></svg>Save
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 13l3 3 7-7"/></svg><span class="hide-mobile">Save</span>
         </button>
         <button class="btn btn-gold btn-sm" onclick="exportPDF()">
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h8l4 4v9H4V4z"/><path d="M12 4v4h4M7 13h6M7 10h4"/></svg>Export PDF
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h8l4 4v9H4V4z"/><path d="M12 4v4h4M7 13h6M7 10h4"/></svg>PDF
         </button>
       </div>
     </div>
@@ -86,9 +86,10 @@
           Shift Information
         </div>
       </div>
-      <div class="form-grid form-grid-4">
+      <div class="form-grid form-grid-mobile">
         <div class="field"><label>Date</label><input type="date" id="ho_date" oninput="onDateChange()"></div>
-        <div class="field"><label>Agent Name</label><input type="text" id="ho_agent" placeholder="Your full name" oninput="autoSave()"></div>
+        <div class="field"><label>Agent Name (Handing Over)</label><input type="text" id="ho_agent" placeholder="Your full name" oninput="autoSave()"></div>
+        <div class="field"><label>Received By (Next Shift)</label><input type="text" id="ho_receiver" placeholder="Name of receiving agent" oninput="autoSave()"></div>
         <div class="field"><label>Handover From</label>
           <select id="ho_from" onchange="autoSave()">
             <option>Morning Shift</option><option>Evening Shift</option><option>Night Shift</option>
@@ -111,9 +112,14 @@
       </div>
       <div class="info-banner">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="7"/><path d="M10 9v4M10 7h.01"/></svg>
-        Add all pending guest interactions, requests, and tasks for the next shift.
+        Add all pending guest interactions, requests, and tasks for the next shift. You can attach images to any row.
       </div>
-      <div class="data-table-wrap">
+
+      <!-- Mobile card view -->
+      <div id="heartistMobileList" class="mobile-task-list"></div>
+
+      <!-- Desktop table view -->
+      <div class="data-table-wrap desktop-only">
         <table class="data-table">
           <thead><tr>
             <th style="width:36px">#</th>
@@ -122,6 +128,7 @@
             <th>Task / Note</th>
             <th>Update / Action Taken</th>
             <th style="width:130px">Status</th>
+            <th style="width:90px">Images</th>
             <th style="width:36px"></th>
           </tr></thead>
           <tbody id="heartistBody"></tbody>
@@ -194,7 +201,12 @@
         <div class="card-title-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="16" height="11" rx="1"/><path d="M6 7V5a4 4 0 018 0v2"/></svg></div>
         POD Room List
       </div></div>
-      <div class="data-table-wrap">
+
+      <!-- Mobile POD cards -->
+      <div id="podMobileList" class="mobile-task-list"></div>
+
+      <!-- Desktop table -->
+      <div class="data-table-wrap desktop-only">
         <table class="data-table">
           <thead><tr>
             <th style="width:36px">#</th>
@@ -248,6 +260,14 @@
     <div id="summaryContent"></div>
   </div>
 
+</div>
+
+<!-- Image lightbox -->
+<div id="lightbox" class="lightbox" onclick="closeLightbox()">
+  <div class="lightbox-inner">
+    <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+    <img id="lightboxImg" src="" alt="Attachment">
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
