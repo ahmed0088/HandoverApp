@@ -1,7 +1,6 @@
 /* ════════════════════════════════════════════════════════════
-   FRONT OFFICE HANDOVER — APP.JS v4
-   Features: Multi-hotel, No Shows, Incognito, POD, Pro PDF,
-             Activity Log, Undo/Redo
+   FRONT OFFICE HANDOVER — APP.JS v3
+   Features: Multi-hotel, No Shows, Incognito, POD, Pro PDF
    ════════════════════════════════════════════════════════════ */
 "use strict";
 
@@ -28,124 +27,6 @@ function freshState() {
 
 let state = freshState();
 
-// ── History / Undo-Redo / Activity Log ────────────────────────
-const MAX_HISTORY = 100;
-let historyStack = [];   // [{snapshot, label, ts, user}, ...]
-let historyIndex = -1;   // current position in stack
-let activityLog  = [];   // [{label, ts, user, action:'push'|'undo'|'redo'}, ...]
-let _historyPaused = false;
-
-function historySnapshot(label) {
-  if (_historyPaused || isLoading) return;
-  const snap = JSON.parse(JSON.stringify(state));
-  // Trim forward history when a new action is taken
-  if (historyIndex < historyStack.length - 1) {
-    historyStack = historyStack.slice(0, historyIndex + 1);
-  }
-  historyStack.push({ snap, label, ts: Date.now(), user: state.meta.agent || 'Unknown' });
-  if (historyStack.length > MAX_HISTORY) historyStack.shift();
-  historyIndex = historyStack.length - 1;
-  _addLogEntry(label, 'change');
-  _updateUndoRedoBtns();
-}
-
-function historyUndo() {
-  if (historyIndex <= 0) return;
-  historyIndex--;
-  _applyHistoryAt(historyIndex, 'undo', historyStack[historyIndex + 1]?.label);
-}
-
-function historyRedo() {
-  if (historyIndex >= historyStack.length - 1) return;
-  historyIndex++;
-  _applyHistoryAt(historyIndex, 'redo', historyStack[historyIndex]?.label);
-}
-
-function _applyHistoryAt(idx, action, label) {
-  _historyPaused = true;
-  isLoading = true;
-  state = JSON.parse(JSON.stringify(historyStack[idx].snap));
-  renderAll();
-  isLoading = false;
-  _historyPaused = false;
-  saveToDB();
-  _addLogEntry(label || '—', action);
-  _updateUndoRedoBtns();
-  showToast(action === 'undo' ? '↩ Undone' : '↪ Redone');
-}
-
-function _updateUndoRedoBtns() {
-  const canUndo = historyIndex > 0;
-  const canRedo = historyIndex < historyStack.length - 1;
-  ['undoBtn','undoBtnPanel'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.disabled = !canUndo;
-  });
-  ['redoBtn','redoBtnPanel'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.disabled = !canRedo;
-  });
-}
-
-function _addLogEntry(label, action) {
-  const icons = { change:'✏️', undo:'↩', redo:'↪', delete:'🗑️', add:'➕', save:'💾' };
-  activityLog.unshift({
-    label,
-    action,
-    icon: icons[action] || '•',
-    ts: Date.now(),
-    user: state.meta.agent || 'Unknown',
-    hotel: currentHotel?.short || '—'
-  });
-  if (activityLog.length > 200) activityLog.pop();
-  _renderActivityLog();
-}
-
-function _renderActivityLog() {
-  const el = document.getElementById('activityLogList');
-  const cnt = document.getElementById('logCount');
-  if (!el) return;
-  if (cnt) cnt.textContent = activityLog.length + ' entr' + (activityLog.length !== 1 ? 'ies' : 'y');
-  if (!activityLog.length) {
-    el.innerHTML = '<div class="log-empty">No activity recorded yet.</div>';
-    return;
-  }
-  el.innerHTML = activityLog.map((e, i) => {
-    const isUndo = e.action === 'undo';
-    const isRedo = e.action === 'redo';
-    const isCurrent = (activityLog.length - 1 - i) === historyIndex;
-    return `<div class="log-entry${isCurrent ? ' log-current' : ''}${isUndo ? ' log-undo' : ''}${isRedo ? ' log-redo' : ''}">
-      <div class="log-icon">${e.icon}</div>
-      <div class="log-body">
-        <div class="log-label">${esc(e.label)}</div>
-        <div class="log-meta">${e.hotel} &nbsp;·&nbsp; ${e.user || 'Unknown'} &nbsp;·&nbsp; ${_fmtLogTime(e.ts)}</div>
-      </div>
-      ${(e.action === 'change' && (activityLog.length - 1 - i) !== historyIndex) ? `<button class="log-restore-btn" onclick="historyRestoreTo(${activityLog.length - 1 - i})" title="Restore to this point">Restore</button>` : ''}
-    </div>`;
-  }).join('');
-}
-
-function historyRestoreTo(idx) {
-  if (idx < 0 || idx >= historyStack.length) return;
-  historyIndex = idx;
-  _applyHistoryAt(idx, 'undo', 'Restored: ' + historyStack[idx].label);
-}
-
-function _fmtLogTime(ts) {
-  const d = new Date(ts);
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function clearActivityLog() {
-  if (!confirm('Clear the activity log? This does not affect your data.')) return;
-  activityLog = [];
-  _renderActivityLog();
-}
-
-// Keyboard shortcuts Ctrl+Z / Ctrl+Y
-document.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); historyUndo(); }
-  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); historyRedo(); }
-});
-
 // ── Init ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   buildHotelSelector();
@@ -162,11 +43,6 @@ function buildHotelSelector() {
   container.innerHTML = HOTELS.map(h => `
     <div class="hotel-card" onclick="selectHotel('${h.id}', true)">
       <div class="hotel-card-accent" style="background:${h.color}"></div>
-      <div class="hotel-card-logo-wrap">
-        <img class="hotel-card-logo" src="${h.logo}" alt="${h.short} logo"
-          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="hotel-card-logo-fallback" style="display:none;color:${h.color}">${h.short[0]}</div>
-      </div>
       <div class="hotel-card-info">
         <div class="hotel-card-name">${h.name}</div>
         <div class="hotel-card-stars">${'★'.repeat(h.stars)}</div>
@@ -206,18 +82,10 @@ function selectHotel(id, animate) {
 
   // Boot app for this hotel
   state = freshState();
-  historyStack = [];
-  historyIndex = -1;
-  activityLog  = [];
-  _updateUndoRedoBtns();
   initDate();
   initFirebase();
   renderAll();
   setupListeners();
-  // Push initial state into history
-  setTimeout(() => {
-    if (historyStack.length === 0) historySnapshot('Opened ' + currentHotel.short);
-  }, 800);
 }
 
 function showHotelSelector() {
@@ -270,7 +138,7 @@ function loadFromDB() {
   currentRef = db.ref(dbPath());
   currentRef.on('value', snap => {
     const d = snap.val();
-    if (d) { isLoading = true; mergeState(d); renderAll(); isLoading = false; historySnapshot('Loaded from server'); }
+    if (d) { isLoading = true; mergeState(d); renderAll(); isLoading = false; }
   });
 }
 
@@ -329,15 +197,14 @@ function collectNotes() {
 }
 function collectAll() { collectMeta(); collectKpi(); collectNotes(); }
 
-function autoSave(label) {
+function autoSave() {
   if (isLoading) return;
   collectAll();
-  historySnapshot(label || 'Edit');
   saveToDB();
   const ad = document.getElementById('agentDisplay'); if (ad) ad.textContent = state.meta.agent||'—';
 }
 
-function manualSave() { collectAll(); historySnapshot('Manual save'); saveToDB(); showToast('Saved successfully ✓'); }
+function manualSave() { collectAll(); saveToDB(); showToast('Saved successfully ✓'); }
 
 // ── Render All ────────────────────────────────────────────────
 function renderAll() {
@@ -447,7 +314,7 @@ function makeTaskCard(r, i) {
   return div;
 }
 
-function addHandoverRow() { state.handover.push(emptyTask()); renderHandoverTable(); autoSave('Added handover task'); }
+function addHandoverRow() { state.handover.push(emptyTask()); renderHandoverTable(); autoSave(); }
 
 // ── NO SHOW TABLE ─────────────────────────────────────────────
 function emptyNoshow() { return { id:uid(), name:'', resv:'', arrival:todayISO(), nights:'1', remarks:'', status:'No Show' }; }
@@ -501,7 +368,7 @@ function makeNoshowCard(r, i) {
   return div;
 }
 
-function addNoshowRow() { state.noshow.push(emptyNoshow()); renderNoshowTable(); autoSave('Added no-show record'); }
+function addNoshowRow() { state.noshow.push(emptyNoshow()); renderNoshowTable(); autoSave(); }
 
 // ── INCOGNITO TABLE ───────────────────────────────────────────
 function emptyIncognito() { return { id:uid(), room:'', name:'', checkin:todayISO(), checkout:'', instructions:'', priority:'VIP' }; }
@@ -555,7 +422,7 @@ function makeIncognitoCard(r, i) {
   return div;
 }
 
-function addIncognitoRow() { state.incognito.push(emptyIncognito()); renderIncognitoTable(); autoSave('Added incognito room'); }
+function addIncognitoRow() { state.incognito.push(emptyIncognito()); renderIncognitoTable(); autoSave(); }
 
 // ── POD TABLE ─────────────────────────────────────────────────
 function emptyPod() { return { id:uid(), room:'', name:'', checkin:'', checkout:'', remarks:'' }; }
@@ -598,7 +465,7 @@ function makePodCard(r, i) {
   return div;
 }
 
-function addPodRow() { state.pod.push(emptyPod()); renderPodTable(); autoSave('Added POD room'); }
+function addPodRow() { state.pod.push(emptyPod()); renderPodTable(); autoSave(); }
 
 // ── Generic render helpers ────────────────────────────────────
 function renderDesktopTable(tbodyId, arr, makeRowFn) {
@@ -664,10 +531,10 @@ function setupListeners() {
     const btn = e.target.closest('[data-del]');
     if (!btn) return;
     const { del: tbl, id } = btn.dataset;
-    if (tbl === 'ho')  { state.handover  = state.handover.filter(r=>r.id!==id);  renderHandoverTable();  autoSave('Deleted handover task'); }
-    if (tbl === 'ns')  { state.noshow    = state.noshow.filter(r=>r.id!==id);    renderNoshowTable();    autoSave('Deleted no-show record'); }
-    if (tbl === 'ic')  { state.incognito = state.incognito.filter(r=>r.id!==id); renderIncognitoTable(); autoSave('Deleted incognito room'); }
-    if (tbl === 'pod') { state.pod       = state.pod.filter(r=>r.id!==id);       renderPodTable();       autoSave('Deleted POD room'); }
+    if (tbl === 'ho')  { state.handover  = state.handover.filter(r=>r.id!==id);  renderHandoverTable();  autoSave(); }
+    if (tbl === 'ns')  { state.noshow    = state.noshow.filter(r=>r.id!==id);    renderNoshowTable();    autoSave(); }
+    if (tbl === 'ic')  { state.incognito = state.incognito.filter(r=>r.id!==id); renderIncognitoTable(); autoSave(); }
+    if (tbl === 'pod') { state.pod       = state.pod.filter(r=>r.id!==id);       renderPodTable();       autoSave(); }
   });
 
   let resizeTimer;
@@ -1199,7 +1066,16 @@ function initDate() {
   const dtEl=document.getElementById('todayDate'); if(dtEl) dtEl.textContent=fmtDate(today);
   if (!state.meta.date) { state.meta.date=today; setVal('ho_date',today); }
   const hr=new Date().getHours();
-  const sh=hr>=6&&hr<14?'Morning':hr>=14&&hr<22?'Evening':'Night';
+  // Morning 08:00–17:00 | Evening 15:00–00:00 | Night 19:00–04:00
+  // During overlaps, the most-recently-started shift takes priority:
+  //   15–17 → Evening started at 15, Morning at 08 → Evening wins
+  //   19–00 → Night started at 19, Evening at 15 → Night wins
+  let sh;
+  if (hr >= 19 || hr < 4)       sh = 'Night';    // 19:00–03:59
+  else if (hr >= 15)             sh = 'Evening';  // 15:00–18:59
+  else if (hr >= 8)              sh = 'Morning';  // 08:00–14:59
+  else if (hr >= 4 && hr < 8)   sh = 'Night';    // 04:00–07:59 (night tail)
+  else                           sh = 'Morning';  // fallback
   currentKpiShift=sh;
   const csEl=document.getElementById('currentShift'); if(csEl) csEl.textContent=sh;
   const dot=document.getElementById('shiftDot');
@@ -1220,11 +1096,7 @@ window.addPodRow        = addPodRow;
 window.renderSummary    = renderSummary;
 window.showHotelSelector = showHotelSelector;
 window.selectHotel      = selectHotel;
-window.historyUndo      = historyUndo;
-window.historyRedo      = historyRedo;
-window.historyRestoreTo = historyRestoreTo;
-window.clearActivityLog = clearActivityLog;
 window.clearHandover    = () => {
   if (!confirm('Clear all handover tasks?')) return;
-  state.handover=[]; renderHandoverTable(); autoSave('Cleared all handover tasks');
+  state.handover=[]; renderHandoverTable(); autoSave();
 };
