@@ -14,11 +14,28 @@ let historyStack = [];
 let historyIndex = -1;
 let isUndoRedo = false;
 
-// Auto-resize textarea to fit content
+// Auto-resize textarea to fit content using a hidden mirror div
+(function() {
+  const mirror = document.createElement('div');
+  mirror.style.cssText = [
+    'position:absolute', 'top:-9999px', 'left:-9999px',
+    'visibility:hidden', 'white-space:pre-wrap', 'word-wrap:break-word',
+    'overflow-wrap:break-word', 'box-sizing:border-box',
+    'font-size:13px', 'font-family:DM Sans,sans-serif',
+    'line-height:1.5', 'padding:5px 8px', 'border:1px solid transparent'
+  ].join(';');
+  document.addEventListener('DOMContentLoaded', () => document.body.appendChild(mirror));
+  window._textareaMirror = mirror;
+})();
+
 function autoResize(el) {
   if (!el || el.tagName !== 'TEXTAREA') return;
-  el.style.height = '0px';
-  el.style.height = el.scrollHeight + 'px';
+  const m = window._textareaMirror;
+  if (!m || !m.parentNode) return;
+  m.style.width = el.offsetWidth + 'px';
+  m.textContent = el.value + '\n'; // trailing newline so empty field has 1 line
+  const h = Math.max(m.scrollHeight, 36);
+  el.style.height = h + 'px';
 }
 
 function autoResizeAll() {
@@ -500,7 +517,7 @@ function manualSave() { collectAll(); saveToDB(); showToast('Saved successfully 
 // ── Render All ────────────────────────────────────────────────
 function renderAll() {
   // After render, wait for browser layout then resize all textareas
-  requestAnimationFrame(() => requestAnimationFrame(autoResizeAll));
+  setTimeout(autoResizeAll, 0);
   setVal('ho_date',     state.meta.date || todayISO());
   setVal('ho_agent',    state.meta.agent);
   setVal('ho_receiver', state.meta.receiver);
