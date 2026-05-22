@@ -14,6 +14,11 @@ let historyStack = [];
 let historyIndex = -1;
 let isUndoRedo = false;
 
+// Track user typing to prevent Firebase re-renders from interrupting input
+let userIsTyping = false;
+let typingTimer = null;
+let pendingRemoteState = null; // holds incoming Firebase data while user is typing
+
 // Activity log (user actions only)
 let activityLog = [];
 let activityLogIdCounter = 0;
@@ -50,9 +55,14 @@ function buildHotelSelector() {
   container.innerHTML = HOTELS.map(h => `
     <div class="hotel-card" onclick="selectHotel('${h.id}', true)">
       <div class="hotel-card-accent" style="background:${h.color}"></div>
+      <div class="hotel-card-logo-wrap">
+        <img class="hotel-card-logo" src="${h.logo}" alt="${escapeHtml(h.short)} logo"
+          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div class="hotel-card-logo-fallback" style="display:none;color:${h.color}">${escapeHtml(h.short)}</div>
+      </div>
       <div class="hotel-card-info">
         <div class="hotel-card-name">${escapeHtml(h.name)}</div>
-        <div class="hotel-card-stars">${'★'.repeat(h.stars)}</div>
+        <div class="hotel-card-stars" style="color:${h.color}">${'★'.repeat(h.stars)}${'☆'.repeat(5-h.stars)}</div>
       </div>
       <svg class="hotel-card-arrow" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 5l5 5-5 5"/></svg>
     </div>
@@ -377,12 +387,16 @@ function loadFromDB() {
   currentRef.on('value', snap => {
     if (isRestoring) return;
     const d = snap.val();
-    if (d && !isUndoRedo) { 
-      isLoading = true; 
-      mergeState(d); 
-      renderAll(); 
+    if (d && !isUndoRedo) {
+      if (userIsTyping) {
+        // User is actively typing — hold the incoming data and apply once they pause
+        pendingRemoteState = d;
+        return;
+      }
+      isLoading = true;
+      mergeState(d);
+      renderAll();
       isLoading = false;
-      // Push initial state to history
       if (historyStack.length === 0) {
         pushToHistory();
       }
@@ -402,7 +416,7 @@ function saveToDB() {
   saveTimer = setTimeout(() => {
     db.ref(dbPath()).set(saveState).catch(() => showToast('Save failed', true));
     try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
-  }, 800);
+  }, 2500); // debounce: wait for user to pause before writing to Firebase
 }
 
 function onDateChange() {
@@ -793,8 +807,48 @@ function setupListeners() {
   let editTimeout;
   let lastEditValue = {};
   
+  document.addEventListener('focusin', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+      userIsTyping = true;
+      clearTimeout(typingTimer);
+    }
+  });
+
+  document.addEventListener('focusout', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+      clearTimeout(typingTimer);
+      typingTimer = setTimeout(() => {
+        userIsTyping = false;
+        // Apply any remote update that was held back while user was typing
+        if (pendingRemoteState) {
+          const held = pendingRemoteState;
+          pendingRemoteState = null;
+          isLoading = true;
+          mergeState(held);
+          renderAll();
+          isLoading = false;
+        }
+      }, 2000); // wait 2s after focus leaves before allowing remote re-render
+    }
+  });
+
   document.addEventListener('input', e => {
     const el = e.target, id = el.dataset.id, tbl = el.dataset.tbl, field = el.dataset.field;
+    // Mark user as actively typing — reset the idle timer
+    userIsTyping = true;
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(() => {
+      userIsTyping = false;
+      if (pendingRemoteState) {
+        const held = pendingRemoteState;
+        pendingRemoteState = null;
+        isLoading = true;
+        mergeState(held);
+        renderAll();
+        isLoading = false;
+      }
+    }, 2000);
+
     if (!id || !tbl) return;
     const arr = getTblArray(tbl);
     if (arr) { 

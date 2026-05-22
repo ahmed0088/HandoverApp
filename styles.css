@@ -182,8 +182,8 @@ body {
 }
 
 .hotel-card-stars {
-  font-size: 9px;
-  letter-spacing: 3px;
+  font-size: 11px;
+  letter-spacing: 2px;
   color: var(--gold);
 }
 

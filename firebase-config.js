@@ -37,7 +37,7 @@ const HOTELS = [
     name: "Mercure Dubai Deira",
     short: "Mercure",
     color: "#6C3483",   // purple
-    stars: 4,
+    stars: 3,           // corrected: Mercure Deira is 3-star
     logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Mercure_logo.svg/320px-Mercure_logo.svg.png"
   }
 ];
