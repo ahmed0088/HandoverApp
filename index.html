@@ -1,3 +1,4 @@
+<!-- index.html - COMPLETE REPLACEMENT -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -111,7 +112,7 @@
           <p>Record all pending tasks and important updates for the incoming shift.</p>
         </div>
         <div class="btn-group">
-          <button class="btn btn-ghost" onclick="window.clearHandover()">
+          <button class="btn btn-ghost" onclick="clearHandover()">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 4h8M4 7h12l-1.5 9H5.5L4 7z"/><path d="M3 7h14"/></svg>Clear
           </button>
           <button class="btn btn-dark" onclick="manualSave()">
@@ -128,7 +129,7 @@
           <div class="card-title"><span class="card-icon">👤</span>Shift Information</div>
         </div>
         <div class="form-grid">
-          <div class="field"><label>Date</label><input type="date" id="ho_date" oninput="onDateChange()"></div>
+          <div class="field"><label>Date</label><input type="date" id="ho_date" onchange="onDateChange()"></div>
           <div class="field"><label>Agent Handing Over</label><input type="text" id="ho_agent" placeholder="Your full name" oninput="autoSave()"></div>
           <div class="field"><label>Received By</label><input type="text" id="ho_receiver" placeholder="Incoming agent name" oninput="autoSave()"></div>
           <div class="field"><label>Handover From</label>
@@ -171,6 +172,15 @@
         <button class="add-row-btn" onclick="addHandoverRow()">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 4v12M4 10h12"/></svg>Add Task
         </button>
+      </div>
+      
+      <!-- Trash bin for restored items -->
+      <div class="card" id="restorePanel" style="display:none; background:#FAFAF8;">
+        <div class="card-head">
+          <div class="card-title"><span class="card-icon">🗑️</span>Recently Deleted</div>
+          <div class="card-badge" id="trashCount">0 items</div>
+        </div>
+        <div id="trashList"></div>
       </div>
     </div>
 
