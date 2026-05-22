@@ -14,28 +14,11 @@ let historyStack = [];
 let historyIndex = -1;
 let isUndoRedo = false;
 
-// Auto-resize textarea to fit content using a hidden mirror div
-(function() {
-  const mirror = document.createElement('div');
-  mirror.style.cssText = [
-    'position:absolute', 'top:-9999px', 'left:-9999px',
-    'visibility:hidden', 'white-space:pre-wrap', 'word-wrap:break-word',
-    'overflow-wrap:break-word', 'box-sizing:border-box',
-    'font-size:13px', 'font-family:DM Sans,sans-serif',
-    'line-height:1.5', 'padding:5px 8px', 'border:1px solid transparent'
-  ].join(';');
-  document.addEventListener('DOMContentLoaded', () => document.body.appendChild(mirror));
-  window._textareaMirror = mirror;
-})();
-
+// Auto-resize textarea: set to 1px then read scrollHeight (most reliable cross-browser method)
 function autoResize(el) {
   if (!el || el.tagName !== 'TEXTAREA') return;
-  const m = window._textareaMirror;
-  if (!m || !m.parentNode) return;
-  m.style.width = el.offsetWidth + 'px';
-  m.textContent = el.value + '\n'; // trailing newline so empty field has 1 line
-  const h = Math.max(m.scrollHeight, 36);
-  el.style.height = h + 'px';
+  el.style.height = '1px';
+  el.style.height = (el.scrollHeight) + 'px';
 }
 
 function autoResizeAll() {
@@ -416,7 +399,7 @@ function loadFromDB() {
   if (currentRef) currentRef.off();
   currentRef = db.ref(dbPath());
   currentRef.on('value', snap => {
-    if (isRestoring) return;
+    if (isRestoring || window._saveBounceGuard) return;
     const d = snap.val();
     if (d && !isUndoRedo) {
       if (userIsTyping) {
@@ -443,7 +426,11 @@ function saveToDB() {
     try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
     return;
   }
-  // Fire immediately — caller is responsible for debouncing
+  // Block incoming Firebase bounce-back for 3s while our write propagates
+  window._saveBounceGuard = true;
+  clearTimeout(window._saveBounceTimer);
+  window._saveBounceTimer = setTimeout(() => { window._saveBounceGuard = false; }, 3000);
+
   db.ref(dbPath()).set(saveState).catch(() => showToast('Save failed', true));
   try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
   isDirty = false;
@@ -987,7 +974,9 @@ function setupListeners() {
     }
     
     pushToHistory();
-    autoSave();
+    // Save immediately on delete — do NOT use dirty flag (Firebase would bounce old data back)
+    collectAll();
+    saveToDB();
   });
 
   let resizeTimer;
