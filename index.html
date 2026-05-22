@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Front Office Handover</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-brand">
+    <span class="stars">★★★★★</span>
+    <div class="brand-divider"></div>
+    <h1>Front Office Handover</h1>
+  </div>
+  <div class="topbar-meta">
+    <div class="meta-chip hide-mobile">
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2v4M13 2v4"/></svg>
+      <span id="todayDate">—</span>
+    </div>
+    <div class="meta-chip">
+      <span class="dot"></span>
+      <span id="currentShift">Morning Shift</span>
+    </div>
+    <div class="meta-chip hide-mobile">
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="7" r="3"/><path d="M4 17c0-3.314 2.686-6 6-6s6 2.686 6 6"/></svg>
+      <strong id="agentDisplay">—</strong>
+    </div>
+    <div id="fbStatus" class="connecting"><span class="fb-dot"></span> Connecting…</div>
+  </div>
+</div>
+
+<div class="navtabs">
+  <div class="tab active" id="tab-handover" onclick="showTab('handover')">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v8a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="2" height="4" rx="1"/></svg>
+    Handover Log
+  </div>
+  <div class="tab" id="tab-kpi" onclick="showTab('kpi')">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 15l4-4 3 3 5-6"/></svg>
+    KPIs
+  </div>
+  <div class="tab" id="tab-pod" onclick="showTab('pod')">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="16" height="11" rx="1"/><path d="M6 7V5a4 4 0 018 0v2"/></svg>
+    POD Rooms
+  </div>
+  <div class="tab" id="tab-notes" onclick="showTab('notes')">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h12v9l-4 4H4z"/><path d="M8 17v-4h4"/><path d="M7 8h6M7 11h4"/></svg>
+    Notes
+  </div>
+  <div class="tab" id="tab-summary" onclick="showTab('summary')">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h14M3 10h14M3 15h9"/></svg>
+    Summary
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- ── HANDOVER LOG ──────────────────────────────────────── -->
+  <div class="panel active" id="panel-handover">
+    <div class="section-header">
+      <div class="section-header-left">
+        <h2>Shift Handover Log</h2>
+        <p>Record all pending tasks and important updates for the incoming shift.</p>
+      </div>
+      <div class="section-header-right">
+        <button class="btn btn-outline btn-sm" onclick="window.clearHandover()">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 4h8M4 7h12l-1.5 9H5.5L4 7zM8 7V5m4 2V5"/></svg>Clear
+        </button>
+        <button class="btn btn-dark btn-sm" onclick="manualSave()">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 13l3 3 7-7"/></svg>Save
+        </button>
+        <button class="btn btn-gold btn-sm" onclick="exportPDF()">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h8l4 4v9H4V4z"/><path d="M12 4v4h4M7 13h6M7 10h4"/></svg>Export PDF
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">
+          <div class="card-title-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="7" r="3"/><path d="M4 17c0-3.314 2.686-6 6-6s6 2.686 6 6"/></svg></div>
+          Shift Information
+        </div>
+      </div>
+      <div class="form-grid form-grid-4">
+        <div class="field"><label>Date</label><input type="date" id="ho_date" oninput="onDateChange()"></div>
+        <div class="field"><label>Agent Name</label><input type="text" id="ho_agent" placeholder="Your full name" oninput="autoSave()"></div>
+        <div class="field"><label>Handover From</label>
+          <select id="ho_from" onchange="autoSave()">
+            <option>Morning Shift</option><option>Evening Shift</option><option>Night Shift</option>
+          </select>
+        </div>
+        <div class="field"><label>Handover To</label>
+          <select id="ho_to" onchange="autoSave()">
+            <option>Evening Shift</option><option>Night Shift</option><option>Morning Shift</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">
+          <div class="card-title-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v8a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="2" height="4" rx="1"/></svg></div>
+          Heartist Handover Tasks
+        </div>
+      </div>
+      <div class="info-banner">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="7"/><path d="M10 9v4M10 7h.01"/></svg>
+        Add all pending guest interactions, requests, and tasks for the next shift.
+      </div>
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th style="width:36px">#</th>
+            <th style="width:115px">Date</th>
+            <th style="width:140px">Heartist / Agent</th>
+            <th>Task / Note</th>
+            <th>Update / Action Taken</th>
+            <th style="width:130px">Status</th>
+            <th style="width:36px"></th>
+          </tr></thead>
+          <tbody id="heartistBody"></tbody>
+        </table>
+      </div>
+      <button class="add-row-btn" onclick="addHandoverRow()">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 4v12M4 10h12"/></svg>Add Row
+      </button>
+    </div>
+  </div>
+
+  <!-- ── KPI ───────────────────────────────────────────────── -->
+  <div class="panel" id="panel-kpi">
+    <div class="section-header">
+      <div class="section-header-left"><h2>KPI Tracker</h2><p>Enter performance numbers for each shift.</p></div>
+      <div class="section-header-right">
+        <button class="btn btn-dark btn-sm" onclick="manualSave()">Save KPIs</button>
+        <button class="btn btn-gold btn-sm" onclick="exportPDF()">Export PDF</button>
+      </div>
+    </div>
+    <div class="shift-pills">
+      <div class="shift-pill active" data-shift="Morning" onclick="switchKpiShift('Morning')">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="4"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2"/></svg>Morning
+      </div>
+      <div class="shift-pill" data-shift="Evening" onclick="switchKpiShift('Evening')">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 12a7 7 0 11-7-7 5 5 0 007 7z"/></svg>Evening
+      </div>
+      <div class="shift-pill" data-shift="Night" onclick="switchKpiShift('Night')">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 10.5A8 8 0 119.5 2a6 6 0 108.5 8.5z"/></svg>Night
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">
+        <div class="card-title-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 15l4-4 3 3 5-6"/></svg></div>
+        <span class="kpi-shift-label">Morning</span>&nbsp;Shift — Upselling &amp; Activity
+      </div></div>
+      <div class="kpi-grid">
+        <div class="kpi-tile"><div class="kpi-label">Walk In</div><input class="kpi-input" type="number" min="0" id="kpi_walkin" placeholder="0" oninput="autoSave()"></div>
+        <div class="kpi-tile"><div class="kpi-label">Extensions</div><input class="kpi-input" type="number" min="0" id="kpi_ext" placeholder="0" oninput="autoSave()"></div>
+        <div class="kpi-tile"><div class="kpi-label">BB Upselling</div><input class="kpi-input" type="number" min="0" id="kpi_bb" placeholder="0" oninput="autoSave()"></div>
+        <div class="kpi-tile"><div class="kpi-label">Room Upselling</div><input class="kpi-input" type="number" min="0" id="kpi_room" placeholder="0" oninput="autoSave()"></div>
+        <div class="kpi-tile"><div class="kpi-label">Sparkles</div><input class="kpi-input" type="number" min="0" id="kpi_spark" placeholder="0" oninput="autoSave()"></div>
+        <div class="kpi-tile"><div class="kpi-label">Profiles</div><input class="kpi-input" type="number" min="0" id="kpi_prof" placeholder="0" oninput="autoSave()"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">
+        <div class="card-title-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 20H3a1 1 0 01-1-1v-2a5 5 0 015-5h6a5 5 0 015 5v2a1 1 0 01-1 1z"/><circle cx="10" cy="7" r="4"/></svg></div>
+        <span class="kpi-shift-label">Morning</span>&nbsp;Shift — Membership
+      </div></div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+        <div class="kpi-tile"><div class="kpi-label">All Enrollment</div><input class="kpi-input" type="number" min="0" id="kpi_enrollment" placeholder="0" oninput="autoSave()"></div>
+        <div class="kpi-tile"><div class="kpi-label">All Membership</div><input class="kpi-input" type="number" min="0" id="kpi_allMembership" placeholder="0" oninput="autoSave()"></div>
+        <div class="kpi-tile"><div class="kpi-label">Welcome Drink Redeemed</div><input class="kpi-input" type="number" min="0" id="kpi_welcome" placeholder="0" oninput="autoSave()"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── POD ROOMS ─────────────────────────────────────────── -->
+  <div class="panel" id="panel-pod">
+    <div class="section-header">
+      <div class="section-header-left"><h2>POD Rooms</h2><p>Track which rooms are on the POD list today.</p></div>
+      <div class="section-header-right">
+        <button class="btn btn-dark btn-sm" onclick="manualSave()">Save</button>
+        <button class="btn btn-gold btn-sm" onclick="exportPDF()">Export PDF</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">
+        <div class="card-title-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="16" height="11" rx="1"/><path d="M6 7V5a4 4 0 018 0v2"/></svg></div>
+        POD Room List
+      </div></div>
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th style="width:36px">#</th>
+            <th style="width:110px">Room No.</th>
+            <th>Guest Name</th>
+            <th style="width:130px">Check-In</th>
+            <th style="width:130px">Check-Out</th>
+            <th>Remarks</th>
+            <th style="width:36px"></th>
+          </tr></thead>
+          <tbody id="podBody"></tbody>
+        </table>
+      </div>
+      <button class="add-row-btn" onclick="addPodRow()">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 4v12M4 10h12"/></svg>Add Room
+      </button>
+    </div>
+  </div>
+
+  <!-- ── NOTES ─────────────────────────────────────────────── -->
+  <div class="panel" id="panel-notes">
+    <div class="section-header">
+      <div class="section-header-left"><h2>Shift Notes</h2><p>Free-text notes for each shift.</p></div>
+      <div class="section-header-right"><button class="btn btn-dark btn-sm" onclick="manualSave()">Save Notes</button></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title"><div class="card-title-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="4"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2"/></svg></div>Morning Shift Notes</div></div>
+      <div class="field"><textarea id="note_morning" placeholder="Notes for the morning shift…" oninput="autoSave()"></textarea></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title"><div class="card-title-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 12a7 7 0 11-7-7 5 5 0 007 7z"/></svg></div>Evening Shift Notes</div></div>
+      <div class="field"><textarea id="note_evening" placeholder="Notes for the evening shift…" oninput="autoSave()"></textarea></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title"><div class="card-title-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 10.5A8 8 0 119.5 2a6 6 0 108.5 8.5z"/></svg></div>Night Shift Notes</div></div>
+      <div class="field"><textarea id="note_night" placeholder="Notes for the night shift…" oninput="autoSave()"></textarea></div>
+    </div>
+  </div>
+
+  <!-- ── SUMMARY ───────────────────────────────────────────── -->
+  <div class="panel" id="panel-summary">
+    <div class="section-header">
+      <div class="section-header-left"><h2>Shift Summary</h2><p>Full overview of today's handover data.</p></div>
+      <div class="section-header-right">
+        <button class="btn btn-outline btn-sm" onclick="renderSummary()">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4v5h5"/><path d="M16 16v-5h-5"/><path d="M4 9a8 8 0 0112.9-3.1M16 11a8 8 0 01-12.9 3.1"/></svg>Refresh
+        </button>
+        <button class="btn btn-gold btn-sm" onclick="exportPDF()">Export PDF</button>
+      </div>
+    </div>
+    <div id="summaryContent"></div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
