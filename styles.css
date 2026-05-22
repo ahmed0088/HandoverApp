@@ -972,3 +972,160 @@ body {
   .form-grid { grid-template-columns: 1fr; }
   .m-card-grid { grid-template-columns: 1fr; }
 }
+
+/* ════════════════════════════════════════════════════════════
+   HOTEL CARD — LOGO
+   ════════════════════════════════════════════════════════════ */
+.hotel-card-logo-wrap {
+  width: 52px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.1);
+  overflow: hidden;
+  padding: 4px;
+}
+.hotel-card-logo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+  opacity: .85;
+}
+.hotel-card-logo-fallback {
+  font-family: 'Playfair Display', serif;
+  font-size: 20px;
+  font-weight: 700;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ════════════════════════════════════════════════════════════
+   UNDO / REDO / LOG BUTTONS (topbar)
+   ════════════════════════════════════════════════════════════ */
+.undo-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.1);
+  color: var(--text3);
+  cursor: pointer;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.undo-btn:hover:not(:disabled) { background: rgba(200,169,110,.15); color: var(--gold-light); border-color: rgba(200,169,110,.3); }
+.undo-btn:disabled { opacity: .3; cursor: not-allowed; }
+.undo-btn svg { width: 14px; height: 14px; }
+
+.log-open-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.1);
+  color: var(--text3);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.log-open-btn:hover { background: rgba(200,169,110,.15); color: var(--gold-light); border-color: rgba(200,169,110,.3); }
+.log-open-btn svg { width: 13px; height: 13px; }
+
+/* ════════════════════════════════════════════════════════════
+   ACTIVITY LOG
+   ════════════════════════════════════════════════════════════ */
+.activity-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 600px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.log-empty {
+  text-align: center;
+  color: var(--text4);
+  font-size: 13px;
+  font-style: italic;
+  padding: 28px 0;
+}
+
+.log-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: background .12s;
+  position: relative;
+}
+.log-entry:hover { background: #fff; border-color: var(--border2); }
+
+.log-entry.log-current {
+  background: #fff;
+  border-left: 3px solid var(--gold);
+  padding-left: 11px;
+}
+
+.log-entry.log-undo { border-left: 3px solid var(--blue-border); padding-left: 11px; }
+.log-entry.log-redo { border-left: 3px solid var(--green-border); padding-left: 11px; }
+
+.log-icon {
+  font-size: 14px;
+  line-height: 1;
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.log-body { flex: 1; min-width: 0; }
+
+.log-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-meta {
+  font-size: 10.5px;
+  color: var(--text3);
+  font-weight: 400;
+}
+
+.log-restore-btn {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text2);
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  transition: all .12s;
+  letter-spacing: .2px;
+  align-self: center;
+}
+.log-restore-btn:hover { background: var(--gold-pale); border-color: var(--gold-border); color: var(--gold-dim); }

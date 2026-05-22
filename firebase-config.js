@@ -14,9 +14,30 @@ const FIREBASE_CONFIG = {
 // Database path prefix
 const DB_ROOT = "frontoffice";
 
-// Hotels
+// Hotels — updated brand colors + logos
 const HOTELS = [
-  { id: "ibis",    name: "Ibis Styles Dubai Deira",    short: "Ibis Styles",  color: "#C9A84C", stars: 3 },
-  { id: "adagio",  name: "Adagio Apartment Dubai",      short: "Adagio",       color: "#4A8AC9", stars: 4 },
-  { id: "mercure", name: "Mercure Dubai Deira",          short: "Mercure",      color: "#8A4AC9", stars: 4 }
+  {
+    id: "ibis",
+    name: "Ibis Styles Dubai Deira",
+    short: "Ibis Styles",
+    color: "#2E8B57",   // green
+    stars: 3,
+    logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Ibis_Styles_logo.svg/320px-Ibis_Styles_logo.svg.png"
+  },
+  {
+    id: "adagio",
+    name: "Adagio Apartment Dubai",
+    short: "Adagio",
+    color: "#C0392B",   // red
+    stars: 4,
+    logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Adagio_logo.svg/320px-Adagio_logo.svg.png"
+  },
+  {
+    id: "mercure",
+    name: "Mercure Dubai Deira",
+    short: "Mercure",
+    color: "#6C3483",   // purple
+    stars: 4,
+    logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Mercure_logo.svg/320px-Mercure_logo.svg.png"
+  }
 ];

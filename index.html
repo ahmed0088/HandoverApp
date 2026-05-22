@@ -49,6 +49,16 @@
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="7" r="3"/><path d="M4 17c0-3.314 2.686-6 6-6s6 2.686 6 6"/></svg>
         <strong id="agentDisplay">—</strong>
       </div>
+      <button class="undo-btn" id="undoBtn" onclick="historyUndo()" title="Undo (Ctrl+Z)" disabled>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 9V5l-1 4M4 9H8M4 9a7 7 0 107 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="undo-btn" id="redoBtn" onclick="historyRedo()" title="Redo (Ctrl+Y)" disabled>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M16 9V5l1 4M16 9h-4m4 0a7 7 0 11-7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="log-open-btn" onclick="showTab('log')" title="Activity Log">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5h12M4 9h8M4 13h6"/><circle cx="16" cy="14" r="3"/></svg>
+        <span class="hide-sm">Log</span>
+      </button>
       <div id="fbStatus" class="fb-chip connecting">
         <span class="fb-dot"></span>
         <span class="hide-sm">Connecting…</span>
@@ -84,6 +94,10 @@
     <div class="tab" id="tab-summary" onclick="showTab('summary')">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h14M3 10h14M3 15h9"/></svg>
       <span>Summary</span>
+    </div>
+    <div class="tab" id="tab-log" onclick="showTab('log')">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5h12M4 9h8M4 13h6"/><circle cx="16" cy="14" r="3"/></svg>
+      <span>Log</span>
     </div>
   </div>
 
@@ -358,6 +372,36 @@
         </div>
       </div>
       <div id="summaryContent"></div>
+    </div>
+
+    <!-- ── ACTIVITY LOG ──────────────────────────────── -->
+    <div class="panel" id="panel-log">
+      <div class="section-header">
+        <div>
+          <h2>Activity Log</h2>
+          <p>Full audit trail of every change. Undo or redo any action.</p>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-ghost" id="undoBtnPanel" onclick="historyUndo()" disabled>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 9V5l-1 4M4 9H8M4 9a7 7 0 107 7" stroke-linecap="round" stroke-linejoin="round"/></svg>Undo
+          </button>
+          <button class="btn btn-ghost" id="redoBtnPanel" onclick="historyRedo()" disabled>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 9V5l1 4M16 9h-4m4 0a7 7 0 11-7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>Redo
+          </button>
+          <button class="btn btn-dark" onclick="clearActivityLog()">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 4h8M4 7h12l-1.5 9H5.5L4 7z"/></svg>Clear Log
+          </button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title"><span class="card-icon">📋</span>Change History</div>
+          <div class="card-badge" id="logCount">0 entries</div>
+        </div>
+        <div id="activityLogList" class="activity-log-list">
+          <div class="log-empty">No activity recorded yet. Changes you make will appear here.</div>
+        </div>
+      </div>
     </div>
 
   </div><!-- /main -->
