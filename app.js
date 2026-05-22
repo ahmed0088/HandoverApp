@@ -158,7 +158,7 @@ async function addToTrash(tableName, rowData) {
     };
     await trashRef.child(trashItem.id).set(trashItem);
     // Keep only last 50 trash items
-    const snapshot = await trashRef.orderByChild('deletedAt').limitToLast(100).once('value');
+    const snapshot = await trashRef.limitToLast(100).once('value');
     const items = snapshot.val();
     if (items && Object.keys(items).length > 50) {
       const keys = Object.keys(items).sort((a,b) => items[a].deletedAt - items[b].deletedAt);
@@ -173,7 +173,7 @@ async function addToTrash(tableName, rowData) {
 async function loadTrashFromDB() {
   if (!firebaseEnabled || !db) return;
   try {
-    const snapshot = await db.ref(trashPath()).orderByChild('deletedAt').limitToLast(20).once('value');
+    const snapshot = await db.ref(trashPath()).limitToLast(20).once('value');
     const trash = snapshot.val();
     renderTrashList(trash);
   } catch(e) { console.warn('Load trash failed', e); }
@@ -398,25 +398,19 @@ function fallbackLS() {
 function loadFromDB() {
   if (currentRef) currentRef.off();
   currentRef = db.ref(dbPath());
-  currentRef.on('value', snap => {
-    if (isRestoring || window._saveBounceGuard) return;
+  // Use once() — load data one time on startup only.
+  // We never want Firebase pushing remote changes mid-session and clobbering local edits.
+  currentRef.once('value', snap => {
     const d = snap.val();
     if (d && !isUndoRedo) {
-      if (userIsTyping) {
-        // User is actively typing — hold the incoming data and apply once they pause
-        pendingRemoteState = d;
-        return;
-      }
       isLoading = true;
       mergeState(d);
       renderAll();
       isLoading = false;
-      if (historyStack.length === 0) {
-        pushToHistory();
-      }
+      if (historyStack.length === 0) pushToHistory();
     }
     loadTrashFromDB();
-  });
+  }).catch(() => showToast('Could not load data', true));
 }
 
 function saveToDB() {
@@ -426,11 +420,6 @@ function saveToDB() {
     try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
     return;
   }
-  // Block incoming Firebase bounce-back for 3s while our write propagates
-  window._saveBounceGuard = true;
-  clearTimeout(window._saveBounceTimer);
-  window._saveBounceTimer = setTimeout(() => { window._saveBounceGuard = false; }, 3000);
-
   db.ref(dbPath()).set(saveState).catch(() => showToast('Save failed', true));
   try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
   isDirty = false;
