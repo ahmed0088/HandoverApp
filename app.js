@@ -450,20 +450,25 @@ async function carryOverFromYesterday() {
     const yData = ySnap.val();
     if (!yData || !Array.isArray(yData.handover)) return;
 
-    // Find tasks from yesterday that are unfinished and not already in today
+    // Find tasks from yesterday that are unfinished and not already in today.
+    // We use a stable carry-over ID ("co_" + original ID) so that re-running
+    // this function (e.g. on reconnect) never duplicates the same row.
     const todayIds = new Set(state.handover.map(r => r.id));
     const unfinished = yData.handover.filter(r => {
       if (!r.note && !r.heartist) return false; // skip empty rows
-      if (todayIds.has(r.id)) return false;      // already carried over before
+      const stableId = 'co_' + r.id;
+      if (todayIds.has(r.id) || todayIds.has(stableId)) return false; // already present
       return CARRY_OVER_STATUSES.includes(r.status);
     });
 
     if (unfinished.length === 0) return;
 
-    // Tag them and prepend to today's handover
+    // Tag them and prepend to today's handover.
+    // Use a deterministic "co_<originalId>" so the duplicate check above
+    // catches them on every subsequent call and never adds them twice.
     const carried = unfinished.map(r => ({
       ...r,
-      id: uid(),             // new id so it's a fresh entry today
+      id: 'co_' + r.id,     // stable ID — prevents re-duplication on reconnect
       carriedFrom: yData.meta?.date || yesterday.toISOString().slice(0,10),
       status: r.status       // keep original status (Pending, Urgent etc.)
     }));
