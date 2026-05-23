@@ -615,6 +615,7 @@ body {
 .data-table tbody tr:nth-child(even) td { background: rgba(248,247,244,.6); }
 .data-table tbody tr:hover td { background: var(--gold-pale); }
 .data-table tbody td { padding: 8px 12px; vertical-align: top; color: var(--text); }
+.data-table tbody td:first-child { vertical-align: middle; text-align: center; padding: 8px 4px; }
 
 .cell-input {
   background: transparent;
