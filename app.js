@@ -415,6 +415,8 @@ function setFBStatus(cls, txt) {
 }
 
 function lsKey()  { return `fo_v3_${currentHotel?.id||'default'}_${getDateKey()}`; }
+// localStorage key for the carryover-done flag (fallback when Firebase is offline)
+function lsCarryKey() { return `fo_carry_done_${currentHotel?.id||'default'}_${getDateKey()}`; }
 function getDateKey() { return (state.meta.date || todayISO()).replace(/-/g,'_'); }
 function dbPath() { return `${DB_ROOT}/${currentHotel?.id||'default'}/${getDateKey()}`; }
 
@@ -444,7 +446,7 @@ function loadFromDB() {
 // Statuses considered "not done" — these carry over to the next day
 const CARRY_OVER_STATUSES = ['Pending', 'In Progress', 'Urgent', 'Follow Up'];
 
-// Guard: carry-over runs at most once per page session
+// In-memory guard: prevents double-run within the same page session
 let carryOverDone = false;
 
 // Each row from yesterday gets a stable originId = its own id (or its originId
@@ -453,9 +455,29 @@ let carryOverDone = false;
 // yesterday row whose originId is already present — that's the entire dedup.
 async function carryOverFromYesterday() {
   if (!firebaseEnabled || !db) return;
+  // In-memory guard: never run twice in the same session
   if (carryOverDone) return;
   carryOverDone = true;
+
   try {
+    const todayDateKey = getDateKey();
+    const todayNodePath = `${DB_ROOT}/${currentHotel?.id||'default'}/${todayDateKey}`;
+    // Separate path for the carry flag — completely outside the date node
+    // so saveToDB() can never overwrite it no matter what write method it uses.
+    const flagPath = `${DB_ROOT}/${currentHotel?.id||'default'}/_carryFlags/${todayDateKey}`;
+
+    // ── PERSISTENT GUARD ───────────────────────────────────────
+    // Layer 1: localStorage (instant, no network). Set once and survives refreshes.
+    if (localStorage.getItem(lsCarryKey()) === 'done') return;
+    // Layer 2: Firebase flag at a path saveToDB() never touches.
+    const flagSnap = await db.ref(flagPath).once('value');
+    if (flagSnap.val() === true) {
+      // Warm up the localStorage fast-path so next check never hits Firebase
+      try { localStorage.setItem(lsCarryKey(), 'done'); } catch(e) {}
+      return;
+    }
+    // ──────────────────────────────────────────────────────────
+
     const todayDate = new Date(state.meta.date || todayISO());
     const yesterday = new Date(todayDate);
     yesterday.setDate(yesterday.getDate() - 1);
@@ -465,7 +487,12 @@ async function carryOverFromYesterday() {
 
     const ySnap = await db.ref(yPath).once('value');
     const yData = ySnap.val();
-    if (!yData || !Array.isArray(yData.handover)) return;
+    if (!yData || !Array.isArray(yData.handover)) {
+      // No yesterday data — still set BOTH flags so we never re-check on reload
+      await db.ref(flagPath).set(true);
+      try { localStorage.setItem(lsCarryKey(), 'done'); } catch(e) {}
+      return;
+    }
 
     // Build a set of every originId already present in today's list.
     // originId is the immutable ID of the very first version of a row —
@@ -482,6 +509,11 @@ async function carryOverFromYesterday() {
       // If today already has a row with this originId, skip — already here
       return !todayOriginIds.has(origin);
     });
+
+    // Always write the persistent flag BEFORE touching state, so that even if
+    // something errors below, we won't loop and add duplicates on the next load.
+    await db.ref(flagPath).set(true);
+    try { localStorage.setItem(lsCarryKey(), 'done'); } catch(e) {}
 
     if (unfinished.length === 0) return;
 
@@ -513,7 +545,7 @@ function saveToDB() {
     try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
     return;
   }
-  db.ref(dbPath()).set(saveState).catch(() => showToast('Save failed', true));
+  db.ref(dbPath()).update(saveState).catch(() => showToast('Save failed', true));
   try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
   isDirty = false;
 }
@@ -547,14 +579,17 @@ function onDateChange() {
 }
 
 function mergeState(d) {
-  if (d.meta)         state.meta         = { ...state.meta,         ...d.meta };
+  if (d.meta) {
+    const currentDate = state.meta.date; // preserve the date we already resolved
+    state.meta = { ...state.meta, ...d.meta };
+    state.meta.date = currentDate;       // never let Firebase overwrite the session date
+  }
   if (d.kpis)         state.kpis         = { ...state.kpis,         ...d.kpis };
   if (d.generalNotes) state.generalNotes = { ...state.generalNotes, ...d.generalNotes };
   if (Array.isArray(d.handover))          state.handover          = d.handover;
   if (Array.isArray(d.noshow))            state.noshow            = d.noshow;
   if (Array.isArray(d.incognito))         state.incognito         = d.incognito;
   if (Array.isArray(d.pod))               state.pod               = d.pod;
-
 }
 
 // ── Collect ───────────────────────────────────────────────────
@@ -1653,7 +1688,8 @@ function showToast(msg, isErr) {
 function initDate() {
   const today=todayISO();
   const dtEl=document.getElementById('todayDate'); if(dtEl) dtEl.textContent=fmtDate(today);
-  if (!state.meta.date) { state.meta.date=today; setVal('ho_date',today); }
+  // Always reset to today — never let a stale date from a previous session persist
+  state.meta.date=today; setVal('ho_date',today);
   const hr=new Date().getHours();
   const sh=hr>=6&&hr<14?'Morning':hr>=14&&hr<22?'Evening':'Night';
   currentKpiShift=sh;
