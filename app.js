@@ -449,55 +449,66 @@ let carryOverDone = false;
 
 async function carryOverFromYesterday() {
   if (!firebaseEnabled || !db) return;
-  if (carryOverDone) return;   // already ran this session — do nothing
+  if (carryOverDone) return;  // only ever run once per page session
   carryOverDone = true;
   try {
-    // Figure out yesterday's date key
     const todayDate = new Date(state.meta.date || todayISO());
     const yesterday = new Date(todayDate);
     yesterday.setDate(yesterday.getDate() - 1);
-    const yKey = yesterday.toISOString().slice(0,10).replace(/-/g,'_');
-    const yPath = `${DB_ROOT}/${currentHotel?.id||'default'}/${yKey}`;
+    const yDateStr = yesterday.toISOString().slice(0,10);
+    const yKey     = yDateStr.replace(/-/g,'_');
+    const yPath    = `${DB_ROOT}/${currentHotel?.id||'default'}/${yKey}`;
 
     const ySnap = await db.ref(yPath).once('value');
     const yData = ySnap.val();
     if (!yData || !Array.isArray(yData.handover)) return;
 
-    // Find tasks from yesterday that are unfinished and not already in today.
-    // We use a stable carry-over ID ("co_" + original ID) so that re-running
-    // this function (e.g. on reconnect) never duplicates the same row.
-    const todayIds = new Set(state.handover.map(r => r.id));
+    // Build a set of original source IDs already in today's list.
+    // Each carried row stores its original yesterday-ID in `sourceId`.
+    // This resolves ALL duplicates — even ones saved before this fix — back
+    // to the original ID and blocks them from being added again.
+    const alreadyHave = new Set(state.handover.map(r => r.sourceId || r.id));
+
     const unfinished = yData.handover.filter(r => {
-      if (!r.note && !r.heartist) return false; // skip empty rows
-      const stableId = 'co_' + r.id;
-      if (todayIds.has(r.id) || todayIds.has(stableId)) return false; // already present
+      if (!r.note && !r.heartist) return false;
+      if (alreadyHave.has(r.id)) return false;
+      if (r.sourceId && alreadyHave.has(r.sourceId)) return false;
       return CARRY_OVER_STATUSES.includes(r.status);
     });
 
-    if (unfinished.length === 0) return;
+    // De-duplicate today's existing list — remove stale copies that snuck in
+    // before this fix (same sourceId appearing more than once).
+    const seen = new Set();
+    state.handover = state.handover.filter(r => {
+      const key = r.sourceId || r.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
-    // Tag them and prepend to today's handover.
-    // Use a deterministic "co_<originalId>" so the duplicate check above
-    // catches them on every subsequent call and never adds them twice.
+    if (unfinished.length === 0) {
+      // Still save in case we cleaned up duplicates above
+      if (seen.size !== state.handover.length + (state.handover.length - seen.size)) saveToDB();
+      return;
+    }
+
+    const carriedDate = yData.meta?.date || yDateStr;
     const carried = unfinished.map(r => ({
       ...r,
-      id: 'co_' + r.id,     // stable ID — prevents re-duplication on reconnect
-      carriedFrom: yData.meta?.date || yesterday.toISOString().slice(0,10),
-      status: r.status       // keep original status (Pending, Urgent etc.)
+      id:          uid(),
+      sourceId:    r.sourceId || r.id,  // remember the ORIGINAL id for future dedup
+      carriedFrom: carriedDate,
+      status:      r.status
     }));
 
-    // Remove any blank placeholder row if it's the only one
+    // Drop a lone blank placeholder row
     if (state.handover.length === 1 && !state.handover[0].note && !state.handover[0].heartist) {
       state.handover = [];
     }
 
     state.handover = [...carried, ...state.handover];
-
-    if (carried.length > 0) {
-      showToast(`${carried.length} unfinished task${carried.length > 1 ? 's' : ''} carried over from yesterday`);
-      // Save immediately so they persist
-      saveToDB();
-    }
+    showToast(`${carried.length} unfinished task${carried.length > 1 ? 's' : ''} carried over from yesterday`);
+    saveToDB();
   } catch(e) {
     console.warn('Carryover check failed', e);
   }
