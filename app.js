@@ -424,6 +424,20 @@ function fallbackLS() {
 
 function loadFromDB() {
   if (currentRef) currentRef.off();
+
+  // ── Step 1: render instantly from localStorage so the UI is never blank ──
+  const cached = localStorage.getItem(lsKey());
+  if (cached) {
+    try {
+      isLoading = true;
+      mergeState(JSON.parse(cached));
+      isLoading = false;
+      renderAll();
+      if (historyStack.length === 0) pushToHistory();
+    } catch(e) {}
+  }
+
+  // ── Step 2: fetch today from Firebase, then run carryover in parallel ──
   currentRef = db.ref(dbPath());
   currentRef.once('value', snap => {
     const d = snap.val();
@@ -432,7 +446,6 @@ function loadFromDB() {
       mergeState(d);
       isLoading = false;
     }
-    // After loading today, check yesterday for unfinished tasks
     carryOverFromYesterday().then(() => {
       renderAll();
       if (historyStack.length === 0) pushToHistory();
@@ -467,17 +480,22 @@ async function carryOverFromYesterday() {
     let totalMoved = 0;
     let toAdd = [];
 
-    // Scan back up to 30 days looking for unfinished tasks
-    for (let daysBack = 1; daysBack <= 30; daysBack++) {
-      const pastDate = new Date(todayDate);
-      pastDate.setDate(pastDate.getDate() - daysBack);
-      const pastDateStr = pastDate.toISOString().slice(0, 10);
-      const pastKey     = pastDateStr.replace(/-/g, '_');
-      const pastPath    = `${DB_ROOT}/${hotelId}/${pastKey}`;
+    // Build all past-day paths upfront
+    const pastDays = Array.from({ length: 30 }, (_, i) => {
+      const d = new Date(todayDate);
+      d.setDate(d.getDate() - (i + 1));
+      const dateStr = d.toISOString().slice(0, 10);
+      return { dateStr, key: dateStr.replace(/-/g, '_'), path: `${DB_ROOT}/${hotelId}/${dateStr.replace(/-/g, '_')}` };
+    });
 
-      const snap = await db.ref(pastPath).once('value');
+    // Fetch ALL 30 days in parallel — one round-trip instead of 30
+    const snaps = await Promise.all(pastDays.map(p => db.ref(p.path).once('value')));
+
+    // Process results and collect writes to do in parallel too
+    const writes = [];
+    snaps.forEach((snap, i) => {
       const data = snap.val();
-      if (!data || !Array.isArray(data.handover)) continue;
+      if (!data || !Array.isArray(data.handover)) return;
 
       const unfinished = data.handover.filter(r => {
         if (!r.note && !r.heartist) return false;
@@ -486,35 +504,36 @@ async function carryOverFromYesterday() {
         return !todayOriginIds.has(origin);
       });
 
-      if (unfinished.length === 0) continue;
+      if (unfinished.length === 0) return;
 
-      // Move: remove these rows from the past date in Firebase
       const remaining = data.handover.filter(r => {
         if (!CARRY_OVER_STATUSES.includes(r.status)) return true;
         if (!r.note && !r.heartist) return true;
         const origin = r.originId || r.id;
-        return todayOriginIds.has(origin); // keep ones already on today
+        return todayOriginIds.has(origin);
       });
 
-      // Update the past day — remove the moved tasks from it
-      await db.ref(pastPath).update({ handover: remaining });
+      // Queue the write to remove moved tasks from this past day
+      writes.push(db.ref(pastDays[i].path).update({ handover: remaining }));
 
-      // Prepare moved rows for today
-      const sourceLabel = data.meta?.date || pastDateStr;
+      const sourceLabel = data.meta?.date || pastDays[i].dateStr;
       unfinished.forEach(r => {
         const origin = r.originId || r.id;
-        todayOriginIds.add(origin); // prevent double-move if same id appears in multiple days
+        todayOriginIds.add(origin);
         toAdd.push({
           ...r,
           id:          uid(),
           originId:    origin,
-          carriedFrom: sourceLabel,  // keeps the original date reference
+          carriedFrom: sourceLabel,
           status:      r.status
         });
       });
 
       totalMoved += unfinished.length;
-    }
+    });
+
+    // Fire all the past-day cleanup writes in parallel
+    if (writes.length > 0) await Promise.all(writes);
 
     if (totalMoved === 0) return;
 
