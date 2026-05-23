@@ -300,6 +300,16 @@ function historyRedo() {
   showToast('Redo successful');
 }
 
+function jumpToHistory(idx) {
+  if (idx < 0 || idx >= historyStack.length) return;
+  historyIndex = idx;
+  restoreFromHistory(historyStack[historyIndex]);
+  updateUndoRedoButtons();
+  renderActivityLog();
+  showToast('Restored to that point ✓');
+  closeLogDrawer();
+}
+
 function updateUndoRedoButtons() {
   const undoBtn = document.getElementById('undoBtn');
   const redoBtn = document.getElementById('redoBtn');
@@ -311,8 +321,7 @@ function updateUndoRedoButtons() {
   
   if (undoBtn) undoBtn.disabled = !canUndo;
   if (redoBtn) redoBtn.disabled = !canRedo;
-  if (undoPanel) undoPanel.disabled = !canUndo;
-  if (redoPanel) redoPanel.disabled = !canRedo;
+  // panel undo/redo buttons removed (single-page layout)
 }
 
 // ── Activity Log ─────────────────────────────────────────────
@@ -322,41 +331,51 @@ function addActivityLog(description, type = 'edit') {
     timestamp: Date.now(),
     description: description,
     type: type,
-    agent: state.meta.agent || 'Unknown'
+    agent: state.meta.agent || 'Unknown',
+    historyIndex: historyIndex  // snapshot index so user can jump back to this exact state
   };
   activityLog.unshift(entry);
-  
-  // Keep only last 200 entries
   if (activityLog.length > 200) activityLog.pop();
-  
   renderActivityLog();
 }
 
 function renderActivityLog() {
   const container = document.getElementById('activityLogList');
   if (!container) return;
-  
+
   const logCountSpan = document.getElementById('logCount');
-  if (logCountSpan) logCountSpan.textContent = activityLog.length + ' entry' + (activityLog.length !== 1 ? 's' : '');
-  
+  if (logCountSpan) logCountSpan.textContent = activityLog.length + ' entr' + (activityLog.length !== 1 ? 'ies' : 'y');
+
+  // Update badge
+  const badge = document.getElementById('logBadge');
+  if (badge) {
+    if (activityLog.length > 0) { badge.style.display = ''; badge.textContent = activityLog.length > 99 ? '99+' : activityLog.length; }
+    else badge.style.display = 'none';
+  }
+
   if (activityLog.length === 0) {
     container.innerHTML = '<div class="log-empty">No activity recorded yet. Changes you make will appear here.</div>';
     return;
   }
-  
-  const typeIcons = {
-    add: '➕', delete: '🗑️', edit: '✏️', restore: '🔄', clear: '🧹'
-  };
-  
-  container.innerHTML = activityLog.map(entry => `
-    <div class="log-entry">
-      <div class="log-icon">${typeIcons[entry.type] || '📝'}</div>
+
+  const typeIcons = { add: '➕', delete: '🗑️', edit: '✏️', restore: '🔄', clear: '🧹' };
+  const typeColors = { add: '#22c55e', delete: '#ef4444', edit: '#C8A96E', restore: '#60a5fa', clear: '#94a3b8' };
+
+  container.innerHTML = activityLog.map(entry => {
+    const canUndo = entry.historyIndex !== undefined && entry.historyIndex >= 0 && entry.historyIndex < historyStack.length;
+    return `
+    <div class="log-entry" data-id="${entry.id}">
+      <div class="log-icon-wrap" style="color:${typeColors[entry.type]||'#C8A96E'}">${typeIcons[entry.type] || '📝'}</div>
       <div class="log-body">
         <div class="log-label">${escapeHtml(entry.description)}</div>
-        <div class="log-meta">${new Date(entry.timestamp).toLocaleString()} • ${escapeHtml(entry.agent)}</div>
+        <div class="log-meta">${new Date(entry.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} • ${escapeHtml(entry.agent)}</div>
       </div>
-    </div>
-  `).join('');
+      ${canUndo ? `<button class="log-undo-btn" onclick="jumpToHistory(${entry.historyIndex})" title="Restore to this point">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V5l-1 4M4 9H8M4 9a7 7 0 107 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Undo
+      </button>` : ''}
+    </div>`;
+  }).join('');
 }
 
 function clearActivityLog() {
@@ -492,7 +511,6 @@ function manualSave() { collectAll(); saveToDB(); showToast('Saved successfully 
 
 // ── Render All ────────────────────────────────────────────────
 function renderAll() {
-  // After render, wait for browser layout then resize all textareas
   setTimeout(autoResizeAll, 0);
   setVal('ho_date',     state.meta.date || todayISO());
   setVal('ho_agent',    state.meta.agent);
@@ -807,14 +825,20 @@ function renderTable(tableName) {
   if (renderers[tableName]) renderers[tableName]();
 }
 
-// ── Tab navigation ────────────────────────────────────────────
+// ── Log Drawer ────────────────────────────────────────────────
+function openLogDrawer() {
+  renderActivityLog();
+  document.getElementById('logDrawer').classList.add('open');
+  document.getElementById('logDrawerOverlay').classList.add('open');
+}
+function closeLogDrawer() {
+  document.getElementById('logDrawer').classList.remove('open');
+  document.getElementById('logDrawerOverlay').classList.remove('open');
+}
+
+// legacy compat — some buttons still call showTab
 function showTab(tab) {
-  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('panel-'+tab).classList.add('active');
-  document.getElementById('tab-'+tab).classList.add('active');
-  if (tab === 'summary') renderSummary();
-  if (tab === 'log') renderActivityLog();
+  if (tab === 'log') { openLogDrawer(); return; }
 }
 
 // ── Event listeners ───────────────────────────────────────────
