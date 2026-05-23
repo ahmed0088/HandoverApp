@@ -680,10 +680,14 @@ function renderHandoverTable() {
 
 function makeTaskRow(r, i) {
   const tr = document.createElement('tr');
+  tr.dataset.id  = r.id;
+  tr.dataset.idx = i;
+  tr.dataset.tbl = 'ho';
+  tr.draggable   = true;
   const ss = statusStyle(r.status);
   const carriedBadge = r.carriedFrom ? `<div class="carried-badge" title="Carried over from ${r.carriedFrom}">↩ ${r.carriedFrom}</div>` : '';
   tr.innerHTML = `
-    <td><div class="row-num">${i+1}</div></td>
+    <td><div class="drag-handle" title="Drag to reorder">⠿</div></td>
     <td><input class="cell-input" type="date" value="${r.date||''}" data-id="${r.id}" data-field="date" data-tbl="ho"></td>
     <td><input class="cell-input" value="${escapeHtml(r.heartist)}" data-id="${r.id}" data-field="heartist" data-tbl="ho" placeholder="Agent name"></td>
     <td><textarea class="cell-textarea" data-id="${r.id}" data-field="note" data-tbl="ho" placeholder="Task or note…">${escapeHtml(r.note)}</textarea>${carriedBadge}</td>
@@ -698,9 +702,16 @@ function makeTaskRow(r, i) {
 function makeTaskCard(r, i) {
   const div = document.createElement('div');
   div.className = 'm-card';
+  div.dataset.id  = r.id;
+  div.dataset.idx = i;
+  div.dataset.tbl = 'ho';
   const ss = statusStyle(r.status);
   div.innerHTML = `
     <div class="m-card-header">
+      <div class="mobile-reorder-btns">
+        <button class="reorder-btn" data-move="up" data-tbl="ho" data-id="${r.id}" title="Move up">▲</button>
+        <button class="reorder-btn" data-move="down" data-tbl="ho" data-id="${r.id}" title="Move down">▼</button>
+      </div>
       <span class="m-card-num">Task #${i+1}</span>
       <div style="flex:1;max-width:140px">
         <select class="status-sel" data-id="${r.id}" data-tbl="ho" style="background:${ss.bg};color:${ss.color};border-color:${ss.border};width:100%;padding:5px 8px;font-size:11px">
@@ -916,6 +927,7 @@ function renderDesktopTable(tbodyId, arr, makeRowFn) {
   if (!tbody) return;
   tbody.innerHTML = '';
   arr.forEach((r,i) => tbody.appendChild(makeRowFn(r,i)));
+  initDragDrop(tbody);
 }
 
 function renderMobileList(listId, arr, makeCardFn) {
@@ -946,6 +958,59 @@ function showTab(tab) {
   if (tab === 'log') { openLogDrawer(); return; }
 }
 
+// ── Drag-and-drop reorder (desktop) ──────────────────────────
+function initDragDrop(tbody) {
+  let dragSrc = null;
+  tbody.querySelectorAll('tr[draggable]').forEach(tr => {
+    tr.addEventListener('dragstart', e => {
+      dragSrc = tr;
+      tr.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    tr.addEventListener('dragend', () => {
+      tr.classList.remove('dragging');
+      tbody.querySelectorAll('tr').forEach(r => r.classList.remove('drag-over'));
+      dragSrc = null;
+    });
+    tr.addEventListener('dragover', e => {
+      e.preventDefault();
+      if (tr === dragSrc) return;
+      tbody.querySelectorAll('tr').forEach(r => r.classList.remove('drag-over'));
+      tr.classList.add('drag-over');
+    });
+    tr.addEventListener('drop', e => {
+      e.preventDefault();
+      if (!dragSrc || dragSrc === tr) return;
+      const tbl    = tr.dataset.tbl;
+      const arr    = getTblArray(tbl);
+      if (!arr) return;
+      const fromIdx = arr.findIndex(r => r.id === dragSrc.dataset.id);
+      const toIdx   = arr.findIndex(r => r.id === tr.dataset.id);
+      if (fromIdx < 0 || toIdx < 0) return;
+      const [moved] = arr.splice(fromIdx, 1);
+      arr.splice(toIdx, 0, moved);
+      renderTable(tbl);
+      pushToHistory();
+      autoSave();
+    });
+  });
+}
+
+// Mobile up/down reorder
+function moveRow(tbl, id, direction) {
+  const arr = getTblArray(tbl);
+  if (!arr) return;
+  const idx = arr.findIndex(r => r.id === id);
+  if (idx < 0) return;
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= arr.length) return;
+  [arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]];
+  renderTable(tbl);
+  pushToHistory();
+  autoSave();
+}
+window.moveRow = moveRow;
+
 // ── Event listeners ───────────────────────────────────────────
 let listenersSetup = false;
 function setupListeners() {
@@ -955,6 +1020,13 @@ function setupListeners() {
   let editTimeout;
   let lastEditValue = {};
   
+  // Mobile reorder buttons
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('.reorder-btn');
+    if (!btn) return;
+    moveRow(btn.dataset.tbl, btn.dataset.id, btn.dataset.move);
+  });
+
   document.addEventListener('focusin', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
       userIsTyping = true;

@@ -1347,3 +1347,43 @@ body {
   padding: 1px 7px;
   letter-spacing: .2px;
 }
+
+/* ── DRAG & REORDER ──────────────────────────────────────── */
+.drag-handle {
+  cursor: grab;
+  color: var(--text3);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px;
+  user-select: none;
+  text-align: center;
+  transition: color .15s;
+}
+.drag-handle:hover { color: var(--gold); }
+.drag-handle:active { cursor: grabbing; }
+
+tr.dragging { opacity: .4; }
+tr.drag-over td { background: rgba(200,169,110,.13) !important; }
+
+.mobile-reorder-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-right: 6px;
+}
+.reorder-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text2);
+  font-size: 9px;
+  line-height: 1;
+  padding: 2px 5px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.reorder-btn:hover {
+  background: var(--gold);
+  color: #fff;
+  border-color: var(--gold);
+}
