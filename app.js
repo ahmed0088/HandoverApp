@@ -468,12 +468,6 @@ async function carryOverFromYesterday() {
   if (carryOverDone) return;
   carryOverDone = true;
   try {
-    // RULE: if today already has ANY real handover rows saved in Firebase,
-    // the shift has been managed — never touch it. Carryover only runs
-    // when today is a completely empty/fresh day.
-    const todayHasRealData = state.handover.some(r => r.note || r.heartist);
-    if (todayHasRealData) return;
-
     const todayDate = new Date(state.meta.date || todayISO());
     const yesterday = new Date(todayDate);
     yesterday.setDate(yesterday.getDate() - 1);
@@ -485,21 +479,38 @@ async function carryOverFromYesterday() {
     const yData = ySnap.val();
     if (!yData || !Array.isArray(yData.handover)) return;
 
-    const unfinished = yData.handover.filter(r =>
-      (r.note || r.heartist) && CARRY_OVER_STATUSES.includes(r.status)
+    // Collect every carriedId already saved in today — these are the fingerprints
+    // of rows already carried over. We ONLY add rows whose carriedId is not yet present.
+    const existingCarriedIds = new Set(
+      state.handover.filter(r => r.carriedId).map(r => r.carriedId)
     );
+
+    const unfinished = yData.handover.filter(r => {
+      if (!r.note && !r.heartist) return false;
+      if (!CARRY_OVER_STATUSES.includes(r.status)) return false;
+      // Generate the same fingerprint we would assign — if it already exists, skip
+      const fingerprint = 'carried__' + (r.carriedId || r.sourceId || r.id);
+      return !existingCarriedIds.has(fingerprint);
+    });
+
     if (unfinished.length === 0) return;
 
     const carriedDate = yData.meta?.date || yDateStr;
     const carried = unfinished.map(r => ({
       ...r,
       id:          uid(),
-      sourceId:    r.sourceId || r.id,
+      // carriedId is the permanent fingerprint for this row — survives all refreshes.
+      // Built from the deepest original id so chains of carry-overs stay unique.
+      carriedId:   'carried__' + (r.carriedId || r.sourceId || r.id),
       carriedFrom: carriedDate,
       status:      r.status
     }));
 
-    state.handover = carried;
+    // Only prepend — never replace. Manual entries added today are kept as-is.
+    if (state.handover.length === 1 && !state.handover[0].note && !state.handover[0].heartist) {
+      state.handover = [];
+    }
+    state.handover = [...carried, ...state.handover];
     showToast(`${carried.length} unfinished task${carried.length > 1 ? 's' : ''} carried over from yesterday`);
     saveToDB();
   } catch(e) {
