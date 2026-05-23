@@ -417,19 +417,72 @@ function fallbackLS() {
 function loadFromDB() {
   if (currentRef) currentRef.off();
   currentRef = db.ref(dbPath());
-  // Use once() — load data one time on startup only.
-  // We never want Firebase pushing remote changes mid-session and clobbering local edits.
   currentRef.once('value', snap => {
     const d = snap.val();
     if (d && !isUndoRedo) {
       isLoading = true;
       mergeState(d);
-      renderAll();
       isLoading = false;
-      if (historyStack.length === 0) pushToHistory();
     }
-    loadTrashFromDB();
+    // After loading today, check yesterday for unfinished tasks
+    carryOverFromYesterday().then(() => {
+      renderAll();
+      if (historyStack.length === 0) pushToHistory();
+      loadTrashFromDB();
+    });
   }).catch(() => showToast('Could not load data', true));
+}
+
+// Statuses considered "not done" — these carry over to the next day
+const CARRY_OVER_STATUSES = ['Pending', 'In Progress', 'Urgent', 'Follow Up'];
+
+async function carryOverFromYesterday() {
+  if (!firebaseEnabled || !db) return;
+  try {
+    // Figure out yesterday's date key
+    const todayDate = new Date(state.meta.date || todayISO());
+    const yesterday = new Date(todayDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yKey = yesterday.toISOString().slice(0,10).replace(/-/g,'_');
+    const yPath = `${DB_ROOT}/${currentHotel?.id||'default'}/${yKey}`;
+
+    const ySnap = await db.ref(yPath).once('value');
+    const yData = ySnap.val();
+    if (!yData || !Array.isArray(yData.handover)) return;
+
+    // Find tasks from yesterday that are unfinished and not already in today
+    const todayIds = new Set(state.handover.map(r => r.id));
+    const unfinished = yData.handover.filter(r => {
+      if (!r.note && !r.heartist) return false; // skip empty rows
+      if (todayIds.has(r.id)) return false;      // already carried over before
+      return CARRY_OVER_STATUSES.includes(r.status);
+    });
+
+    if (unfinished.length === 0) return;
+
+    // Tag them and prepend to today's handover
+    const carried = unfinished.map(r => ({
+      ...r,
+      id: uid(),             // new id so it's a fresh entry today
+      carriedFrom: yData.meta?.date || yesterday.toISOString().slice(0,10),
+      status: r.status       // keep original status (Pending, Urgent etc.)
+    }));
+
+    // Remove any blank placeholder row if it's the only one
+    if (state.handover.length === 1 && !state.handover[0].note && !state.handover[0].heartist) {
+      state.handover = [];
+    }
+
+    state.handover = [...carried, ...state.handover];
+
+    if (carried.length > 0) {
+      showToast(`${carried.length} unfinished task${carried.length > 1 ? 's' : ''} carried over from yesterday`);
+      // Save immediately so they persist
+      saveToDB();
+    }
+  } catch(e) {
+    console.warn('Carryover check failed', e);
+  }
 }
 
 function saveToDB() {
@@ -578,11 +631,12 @@ function renderHandoverTable() {
 function makeTaskRow(r, i) {
   const tr = document.createElement('tr');
   const ss = statusStyle(r.status);
+  const carriedBadge = r.carriedFrom ? `<div class="carried-badge" title="Carried over from ${r.carriedFrom}">↩ ${r.carriedFrom}</div>` : '';
   tr.innerHTML = `
     <td><div class="row-num">${i+1}</div></td>
     <td><input class="cell-input" type="date" value="${r.date||''}" data-id="${r.id}" data-field="date" data-tbl="ho"></td>
     <td><input class="cell-input" value="${escapeHtml(r.heartist)}" data-id="${r.id}" data-field="heartist" data-tbl="ho" placeholder="Agent name"></td>
-    <td><textarea class="cell-textarea" data-id="${r.id}" data-field="note" data-tbl="ho" placeholder="Task or note…">${escapeHtml(r.note)}</textarea></td>
+    <td><textarea class="cell-textarea" data-id="${r.id}" data-field="note" data-tbl="ho" placeholder="Task or note…">${escapeHtml(r.note)}</textarea>${carriedBadge}</td>
     <td><textarea class="cell-textarea" data-id="${r.id}" data-field="update" data-tbl="ho" placeholder="Action taken…">${escapeHtml(r.update)}</textarea></td>
     <td><select class="status-sel" data-id="${r.id}" data-tbl="ho" style="background:${ss.bg};color:${ss.color};border-color:${ss.border}">
       ${taskStatuses().map(s=>`<option ${r.status===s?'selected':''}>${s}</option>`).join('')}
@@ -608,7 +662,7 @@ function makeTaskCard(r, i) {
     <div class="m-card-grid">
       <div class="m-card-field"><label>Date</label><input type="date" value="${r.date||''}" data-id="${r.id}" data-field="date" data-tbl="ho"></div>
       <div class="m-card-field"><label>Heartist</label><input type="text" value="${escapeHtml(r.heartist)}" data-id="${r.id}" data-field="heartist" data-tbl="ho" placeholder="Agent name"></div>
-      <div class="m-card-field full"><label>Task / Note</label><textarea data-id="${r.id}" data-field="note" data-tbl="ho" placeholder="Task or note…">${escapeHtml(r.note)}</textarea></div>
+      <div class="m-card-field full"><label>Task / Note ${r.carriedFrom ? `<span class="carried-badge">↩ from ${r.carriedFrom}</span>` : ''}</label><textarea data-id="${r.id}" data-field="note" data-tbl="ho" placeholder="Task or note…">${escapeHtml(r.note)}</textarea></div>
       <div class="m-card-field full"><label>Update / Action Taken</label><textarea data-id="${r.id}" data-field="update" data-tbl="ho" placeholder="Action taken…">${escapeHtml(r.update)}</textarea></div>
     </div>`;
   return div;

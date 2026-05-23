@@ -1332,3 +1332,17 @@ body {
   text-align: center;
   line-height: 14px;
 }
+
+/* ── CARRIED OVER BADGE ──────────────────────────────────── */
+.carried-badge {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 5px;
+  padding: 1px 7px;
+  letter-spacing: .2px;
+}
