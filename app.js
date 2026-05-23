@@ -718,7 +718,8 @@ function makeTaskCard(r, i) {
   return div;
 }
 
-function addHandoverRow() { 
+function addHandoverRow() {
+  collectMeta(); // ensure state.meta.agent is up to date before creating the row
   const newRow = emptyTask();
   state.handover.push(newRow); 
   renderHandoverTable(); 
