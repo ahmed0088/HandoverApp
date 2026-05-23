@@ -464,7 +464,9 @@ async function carryOverFromYesterday() {
     const todayNodePath = `${DB_ROOT}/${currentHotel?.id||'default'}/${todayDateKey}`;
     // Separate path for the carry flag — completely outside the date node
     // so saveToDB() can never overwrite it no matter what write method it uses.
-    const flagPath = `${DB_ROOT}/${currentHotel?.id||'default'}/_carryFlags/${todayDateKey}`;
+    // Flag lives at a TOP-LEVEL path, completely separate from DB_ROOT.
+    // saveToDB() calls .set() on DB_ROOT/{hotel}/{date} — it can never touch this.
+    const flagPath = `fo_carryFlags/${currentHotel?.id||'default'}/${todayDateKey}`;
 
     // ── PERSISTENT GUARD ───────────────────────────────────────
     // Layer 1: localStorage (instant, no network). Set once and survives refreshes.
@@ -545,7 +547,7 @@ function saveToDB() {
     try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
     return;
   }
-  db.ref(dbPath()).update(saveState).catch(() => showToast('Save failed', true));
+  db.ref(dbPath()).set(saveState).catch(() => showToast('Save failed', true));
   try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
   isDirty = false;
 }
@@ -586,10 +588,18 @@ function mergeState(d) {
   }
   if (d.kpis)         state.kpis         = { ...state.kpis,         ...d.kpis };
   if (d.generalNotes) state.generalNotes = { ...state.generalNotes, ...d.generalNotes };
-  if (Array.isArray(d.handover))          state.handover          = d.handover;
-  if (Array.isArray(d.noshow))            state.noshow            = d.noshow;
-  if (Array.isArray(d.incognito))         state.incognito         = d.incognito;
-  if (Array.isArray(d.pod))               state.pod               = d.pod;
+  // Firebase may return arrays as numbered-key objects if data was ever written
+  // with .update(). toArray() handles both cases safely.
+  function toArray(v) {
+    if (!v) return null;
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'object') return Object.values(v);
+    return null;
+  }
+  const ha = toArray(d.handover);   if (ha) state.handover  = ha;
+  const na = toArray(d.noshow);     if (na) state.noshow    = na;
+  const ia = toArray(d.incognito);  if (ia) state.incognito = ia;
+  const pa = toArray(d.pod);        if (pa) state.pod       = pa;
 }
 
 // ── Collect ───────────────────────────────────────────────────
