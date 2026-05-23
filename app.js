@@ -116,6 +116,7 @@ function selectHotel(id, animate) {
   activityLogIdCounter = 0;
   updateUndoRedoButtons();
 
+  carryOverDone = false;   // allow carryover to run fresh for this hotel
   state = freshState();
   initDate();
   initFirebase();
@@ -394,9 +395,16 @@ function initFirebase() {
     db = firebase.database();
     firebaseEnabled = true;
     setFBStatus('connecting','Connecting…');
+    let initialLoadDone = false;
     db.ref('.info/connected').on('value', s => {
-      if (s.val()) { setFBStatus('connected','Live'); loadFromDB(); }
-      else setFBStatus('connecting','Reconnecting…');
+      if (s.val()) {
+        setFBStatus('connected','Live');
+        // Only do the full load (including carryover) once per session.
+        // On subsequent reconnects just update the status indicator.
+        if (!initialLoadDone) { initialLoadDone = true; loadFromDB(); }
+      } else {
+        setFBStatus('connecting','Reconnecting…');
+      }
     });
   } catch(e) { setFBStatus('error','Offline'); fallbackLS(); }
 }
@@ -436,8 +444,13 @@ function loadFromDB() {
 // Statuses considered "not done" — these carry over to the next day
 const CARRY_OVER_STATUSES = ['Pending', 'In Progress', 'Urgent', 'Follow Up'];
 
+// Guard: carry-over runs at most once per page session
+let carryOverDone = false;
+
 async function carryOverFromYesterday() {
   if (!firebaseEnabled || !db) return;
+  if (carryOverDone) return;   // already ran this session — do nothing
+  carryOverDone = true;
   try {
     // Figure out yesterday's date key
     const todayDate = new Date(state.meta.date || todayISO());
@@ -521,6 +534,7 @@ function onDateChange() {
   if (currentRef && firebaseEnabled) currentRef.off();
   state = freshState();
   state.meta.date = d;
+  carryOverDone = false;   // allow carryover to re-run for the new date
   if (firebaseEnabled) loadFromDB();
   else fallbackLS();
   renderAll();
