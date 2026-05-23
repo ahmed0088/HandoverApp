@@ -47,10 +47,7 @@ function freshState() {
     noshow: [],
     incognito: [],
     pod: [],
-    generalNotes: { morning:'', evening:'', night:'' },
-    // sourceIds of carried-over tasks explicitly dismissed (deleted or marked done)
-    // — carryover NEVER re-adds anything in this list
-    dismissedSourceIds: []
+    generalNotes: { morning:'', evening:'', night:'' }
   };
 }
 
@@ -450,19 +447,10 @@ const CARRY_OVER_STATUSES = ['Pending', 'In Progress', 'Urgent', 'Follow Up'];
 // Guard: carry-over runs at most once per page session
 let carryOverDone = false;
 
-// Permanently dismiss a carried-over row so it never comes back from yesterday.
-// Call this whenever a carried row is deleted OR its status changes to a
-// "finished" status. Saves immediately so the dismissal survives refresh.
-function dismissCarriedRow(row) {
-  const sid = row.sourceId || row.id;
-  if (!sid) return;
-  if (!state.dismissedSourceIds.includes(sid)) {
-    state.dismissedSourceIds.push(sid);
-    collectAll();
-    saveToDB();
-  }
-}
-
+// Each row from yesterday gets a stable originId = its own id (or its originId
+// if it was itself carried). This never changes no matter how many times the
+// row is carried forward. Today we index all existing originIds and skip any
+// yesterday row whose originId is already present — that's the entire dedup.
 async function carryOverFromYesterday() {
   if (!firebaseEnabled || !db) return;
   if (carryOverDone) return;
@@ -479,18 +467,20 @@ async function carryOverFromYesterday() {
     const yData = ySnap.val();
     if (!yData || !Array.isArray(yData.handover)) return;
 
-    // Collect every carriedId already saved in today — these are the fingerprints
-    // of rows already carried over. We ONLY add rows whose carriedId is not yet present.
-    const existingCarriedIds = new Set(
-      state.handover.filter(r => r.carriedId).map(r => r.carriedId)
+    // Build a set of every originId already present in today's list.
+    // originId is the immutable ID of the very first version of a row —
+    // it never changes even after multiple carry-overs.
+    const todayOriginIds = new Set(
+      state.handover.map(r => r.originId || r.id)
     );
 
     const unfinished = yData.handover.filter(r => {
       if (!r.note && !r.heartist) return false;
       if (!CARRY_OVER_STATUSES.includes(r.status)) return false;
-      // Generate the same fingerprint we would assign — if it already exists, skip
-      const fingerprint = 'carried__' + (r.carriedId || r.sourceId || r.id);
-      return !existingCarriedIds.has(fingerprint);
+      // The originId of this yesterday row — trace back to the very first id
+      const origin = r.originId || r.id;
+      // If today already has a row with this originId, skip — already here
+      return !todayOriginIds.has(origin);
     });
 
     if (unfinished.length === 0) return;
@@ -498,15 +488,13 @@ async function carryOverFromYesterday() {
     const carriedDate = yData.meta?.date || yDateStr;
     const carried = unfinished.map(r => ({
       ...r,
-      id:          uid(),
-      // carriedId is the permanent fingerprint for this row — survives all refreshes.
-      // Built from the deepest original id so chains of carry-overs stay unique.
-      carriedId:   'carried__' + (r.carriedId || r.sourceId || r.id),
+      id:          uid(),          // fresh Firebase id for today
+      originId:    r.originId || r.id,  // IMMUTABLE — always the very first id
       carriedFrom: carriedDate,
       status:      r.status
     }));
 
-    // Only prepend — never replace. Manual entries added today are kept as-is.
+    // Drop lone empty placeholder, then prepend carried rows
     if (state.handover.length === 1 && !state.handover[0].note && !state.handover[0].heartist) {
       state.handover = [];
     }
@@ -566,7 +554,7 @@ function mergeState(d) {
   if (Array.isArray(d.noshow))            state.noshow            = d.noshow;
   if (Array.isArray(d.incognito))         state.incognito         = d.incognito;
   if (Array.isArray(d.pod))               state.pod               = d.pod;
-  if (Array.isArray(d.dismissedSourceIds)) state.dismissedSourceIds = d.dismissedSourceIds;
+
 }
 
 // ── Collect ───────────────────────────────────────────────────
@@ -1026,14 +1014,7 @@ function setupListeners() {
           if (!isUndoRedo && !isRestoring && oldVal !== el.value) {
             addActivityLog(`Changed ${tableNameToName(tbl)} status to "${el.value}"`, 'edit');
           }
-          // If this carried-over task is now "finished", permanently dismiss it
-          // so carryover never pulls it back from yesterday on the next refresh.
-          const finishedStatuses = ['Done','Cancelled','Charged','Waived','Refunded','Info'];
-          if (row.carriedFrom && finishedStatuses.includes(el.value)) {
-            dismissCarriedRow(row);
-          } else {
-            autoSave();
-          }
+          autoSave();
           const s = tbl === 'ic' ? priorityStyle(el.value) : tbl === 'ns' ? noshowStatusStyle(el.value) : statusStyle(el.value);
           el.style.background = s.bg; el.style.color = s.color; el.style.borderColor = s.border;
         }
@@ -1054,12 +1035,7 @@ function setupListeners() {
       deletedName = deletedItem?.heartist || (deletedItem?.note ? deletedItem.note.substring(0,30) : 'task');
       state.handover = state.handover.filter(r => r.id !== id);
       renderHandoverTable();
-      if (deletedItem) {
-        addToTrash('ho', deletedItem);
-        // If this was a carried-over task, permanently dismiss it so
-        // carryover never pulls it back from yesterday on next refresh.
-        if (deletedItem.carriedFrom) dismissCarriedRow(deletedItem);
-      }
+      if (deletedItem) addToTrash('ho', deletedItem);
       addActivityLog(`Deleted handover task: "${deletedName}"`, 'delete');
     }
     if (tbl === 'ns') { 
