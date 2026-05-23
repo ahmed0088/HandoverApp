@@ -456,50 +456,74 @@ async function carryOverFromYesterday() {
   if (carryOverDone) return;
   carryOverDone = true;
   try {
+    const hotelId = currentHotel?.id || 'default';
     const todayDate = new Date(state.meta.date || todayISO());
-    const yesterday = new Date(todayDate);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yDateStr = yesterday.toISOString().slice(0,10);
-    const yKey     = yDateStr.replace(/-/g,'_');
-    const yPath    = `${DB_ROOT}/${currentHotel?.id||'default'}/${yKey}`;
 
-    const ySnap = await db.ref(yPath).once('value');
-    const yData = ySnap.val();
-    if (!yData || !Array.isArray(yData.handover)) return;
-
-    // Build a set of every originId already present in today's list.
-    // originId is the immutable ID of the very first version of a row —
-    // it never changes even after multiple carry-overs.
+    // Build set of originIds already in today so we never duplicate
     const todayOriginIds = new Set(
       state.handover.map(r => r.originId || r.id)
     );
 
-    const unfinished = yData.handover.filter(r => {
-      if (!r.note && !r.heartist) return false;
-      if (!CARRY_OVER_STATUSES.includes(r.status)) return false;
-      // The originId of this yesterday row — trace back to the very first id
-      const origin = r.originId || r.id;
-      // If today already has a row with this originId, skip — already here
-      return !todayOriginIds.has(origin);
-    });
+    let totalMoved = 0;
+    let toAdd = [];
 
-    if (unfinished.length === 0) return;
+    // Scan back up to 30 days looking for unfinished tasks
+    for (let daysBack = 1; daysBack <= 30; daysBack++) {
+      const pastDate = new Date(todayDate);
+      pastDate.setDate(pastDate.getDate() - daysBack);
+      const pastDateStr = pastDate.toISOString().slice(0, 10);
+      const pastKey     = pastDateStr.replace(/-/g, '_');
+      const pastPath    = `${DB_ROOT}/${hotelId}/${pastKey}`;
 
-    const carriedDate = yData.meta?.date || yDateStr;
-    const carried = unfinished.map(r => ({
-      ...r,
-      id:          uid(),          // fresh Firebase id for today
-      originId:    r.originId || r.id,  // IMMUTABLE — always the very first id
-      carriedFrom: carriedDate,
-      status:      r.status
-    }));
+      const snap = await db.ref(pastPath).once('value');
+      const data = snap.val();
+      if (!data || !Array.isArray(data.handover)) continue;
 
-    // Drop lone empty placeholder, then prepend carried rows
+      const unfinished = data.handover.filter(r => {
+        if (!r.note && !r.heartist) return false;
+        if (!CARRY_OVER_STATUSES.includes(r.status)) return false;
+        const origin = r.originId || r.id;
+        return !todayOriginIds.has(origin);
+      });
+
+      if (unfinished.length === 0) continue;
+
+      // Move: remove these rows from the past date in Firebase
+      const remaining = data.handover.filter(r => {
+        if (!CARRY_OVER_STATUSES.includes(r.status)) return true;
+        if (!r.note && !r.heartist) return true;
+        const origin = r.originId || r.id;
+        return todayOriginIds.has(origin); // keep ones already on today
+      });
+
+      // Update the past day — remove the moved tasks from it
+      await db.ref(pastPath).update({ handover: remaining });
+
+      // Prepare moved rows for today
+      const sourceLabel = data.meta?.date || pastDateStr;
+      unfinished.forEach(r => {
+        const origin = r.originId || r.id;
+        todayOriginIds.add(origin); // prevent double-move if same id appears in multiple days
+        toAdd.push({
+          ...r,
+          id:          uid(),
+          originId:    origin,
+          carriedFrom: sourceLabel,  // keeps the original date reference
+          status:      r.status
+        });
+      });
+
+      totalMoved += unfinished.length;
+    }
+
+    if (totalMoved === 0) return;
+
+    // Drop lone empty placeholder, then prepend moved rows
     if (state.handover.length === 1 && !state.handover[0].note && !state.handover[0].heartist) {
       state.handover = [];
     }
-    state.handover = [...carried, ...state.handover];
-    showToast(`${carried.length} unfinished task${carried.length > 1 ? 's' : ''} carried over from yesterday`);
+    state.handover = [...toAdd, ...state.handover];
+    showToast(`${totalMoved} unfinished task${totalMoved > 1 ? 's' : ''} moved to today`);
     saveToDB();
   } catch(e) {
     console.warn('Carryover check failed', e);
