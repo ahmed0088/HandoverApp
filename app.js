@@ -415,8 +415,6 @@ function setFBStatus(cls, txt) {
 }
 
 function lsKey()  { return `fo_v3_${currentHotel?.id||'default'}_${getDateKey()}`; }
-// localStorage key for the carryover-done flag (fallback when Firebase is offline)
-function lsCarryKey() { return `fo_carry_done_${currentHotel?.id||'default'}_${getDateKey()}`; }
 function getDateKey() { return (state.meta.date || todayISO()).replace(/-/g,'_'); }
 function dbPath() { return `${DB_ROOT}/${currentHotel?.id||'default'}/${getDateKey()}`; }
 
@@ -446,7 +444,7 @@ function loadFromDB() {
 // Statuses considered "not done" — these carry over to the next day
 const CARRY_OVER_STATUSES = ['Pending', 'In Progress', 'Urgent', 'Follow Up'];
 
-// In-memory guard: prevents double-run within the same page session
+// Guard: carry-over runs at most once per page session
 let carryOverDone = false;
 
 // Each row from yesterday gets a stable originId = its own id (or its originId
@@ -455,31 +453,9 @@ let carryOverDone = false;
 // yesterday row whose originId is already present — that's the entire dedup.
 async function carryOverFromYesterday() {
   if (!firebaseEnabled || !db) return;
-  // In-memory guard: never run twice in the same session
   if (carryOverDone) return;
   carryOverDone = true;
-
   try {
-    const todayDateKey = getDateKey();
-    const todayNodePath = `${DB_ROOT}/${currentHotel?.id||'default'}/${todayDateKey}`;
-    // Separate path for the carry flag — completely outside the date node
-    // so saveToDB() can never overwrite it no matter what write method it uses.
-    // Flag lives at a TOP-LEVEL path, completely separate from DB_ROOT.
-    // saveToDB() calls .set() on DB_ROOT/{hotel}/{date} — it can never touch this.
-    const flagPath = `fo_carryFlags/${currentHotel?.id||'default'}/${todayDateKey}`;
-
-    // ── PERSISTENT GUARD ───────────────────────────────────────
-    // Layer 1: localStorage (instant, no network). Set once and survives refreshes.
-    if (localStorage.getItem(lsCarryKey()) === 'done') return;
-    // Layer 2: Firebase flag at a path saveToDB() never touches.
-    const flagSnap = await db.ref(flagPath).once('value');
-    if (flagSnap.val() === true) {
-      // Warm up the localStorage fast-path so next check never hits Firebase
-      try { localStorage.setItem(lsCarryKey(), 'done'); } catch(e) {}
-      return;
-    }
-    // ──────────────────────────────────────────────────────────
-
     const todayDate = new Date(state.meta.date || todayISO());
     const yesterday = new Date(todayDate);
     yesterday.setDate(yesterday.getDate() - 1);
@@ -489,12 +465,7 @@ async function carryOverFromYesterday() {
 
     const ySnap = await db.ref(yPath).once('value');
     const yData = ySnap.val();
-    if (!yData || !Array.isArray(yData.handover)) {
-      // No yesterday data — still set BOTH flags so we never re-check on reload
-      await db.ref(flagPath).set(true);
-      try { localStorage.setItem(lsCarryKey(), 'done'); } catch(e) {}
-      return;
-    }
+    if (!yData || !Array.isArray(yData.handover)) return;
 
     // Build a set of every originId already present in today's list.
     // originId is the immutable ID of the very first version of a row —
@@ -511,11 +482,6 @@ async function carryOverFromYesterday() {
       // If today already has a row with this originId, skip — already here
       return !todayOriginIds.has(origin);
     });
-
-    // Always write the persistent flag BEFORE touching state, so that even if
-    // something errors below, we won't loop and add duplicates on the next load.
-    await db.ref(flagPath).set(true);
-    try { localStorage.setItem(lsCarryKey(), 'done'); } catch(e) {}
 
     if (unfinished.length === 0) return;
 
@@ -588,18 +554,10 @@ function mergeState(d) {
   }
   if (d.kpis)         state.kpis         = { ...state.kpis,         ...d.kpis };
   if (d.generalNotes) state.generalNotes = { ...state.generalNotes, ...d.generalNotes };
-  // Firebase may return arrays as numbered-key objects if data was ever written
-  // with .update(). toArray() handles both cases safely.
-  function toArray(v) {
-    if (!v) return null;
-    if (Array.isArray(v)) return v;
-    if (typeof v === 'object') return Object.values(v);
-    return null;
-  }
-  const ha = toArray(d.handover);   if (ha) state.handover  = ha;
-  const na = toArray(d.noshow);     if (na) state.noshow    = na;
-  const ia = toArray(d.incognito);  if (ia) state.incognito = ia;
-  const pa = toArray(d.pod);        if (pa) state.pod       = pa;
+  if (Array.isArray(d.handover))          state.handover          = d.handover;
+  if (Array.isArray(d.noshow))            state.noshow            = d.noshow;
+  if (Array.isArray(d.incognito))         state.incognito         = d.incognito;
+  if (Array.isArray(d.pod))               state.pod               = d.pod;
 }
 
 // ── Collect ───────────────────────────────────────────────────
@@ -686,7 +644,7 @@ function renderNotes() {
 }
 
 // ── HANDOVER TABLE ────────────────────────────────────────────
-function emptyTask()    { return { id:uid(), date:todayISO(), heartist:'', note:'', update:'', status:'Pending' }; }
+function emptyTask()    { return { id:uid(), date:todayISO(), heartist:state.meta.agent||'', note:'', update:'', status:'Pending' }; }
 
 function renderHandoverTable() {
   if (!state.handover.length) state.handover.push(emptyTask());
