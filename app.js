@@ -47,7 +47,10 @@ function freshState() {
     noshow: [],
     incognito: [],
     pod: [],
-    generalNotes: { morning:'', evening:'', night:'' }
+    generalNotes: { morning:'', evening:'', night:'' },
+    // sourceIds of carried-over tasks explicitly dismissed (deleted or marked done)
+    // — carryover NEVER re-adds anything in this list
+    dismissedSourceIds: []
   };
 }
 
@@ -447,6 +450,19 @@ const CARRY_OVER_STATUSES = ['Pending', 'In Progress', 'Urgent', 'Follow Up'];
 // Guard: carry-over runs at most once per page session
 let carryOverDone = false;
 
+// Permanently dismiss a carried-over row so it never comes back from yesterday.
+// Call this whenever a carried row is deleted OR its status changes to a
+// "finished" status. Saves immediately so the dismissal survives refresh.
+function dismissCarriedRow(row) {
+  const sid = row.sourceId || row.id;
+  if (!sid) return;
+  if (!state.dismissedSourceIds.includes(sid)) {
+    state.dismissedSourceIds.push(sid);
+    collectAll();
+    saveToDB();
+  }
+}
+
 async function carryOverFromYesterday() {
   if (!firebaseEnabled || !db) return;
   if (carryOverDone) return;  // only ever run once per page session
@@ -467,12 +483,16 @@ async function carryOverFromYesterday() {
     // Each carried row stores its original yesterday-ID in `sourceId`.
     // This resolves ALL duplicates — even ones saved before this fix — back
     // to the original ID and blocks them from being added again.
+    // Build exclusion set: anything already in today's list OR explicitly dismissed
+    const dismissed   = new Set(state.dismissedSourceIds || []);
     const alreadyHave = new Set(state.handover.map(r => r.sourceId || r.id));
 
     const unfinished = yData.handover.filter(r => {
       if (!r.note && !r.heartist) return false;
-      if (alreadyHave.has(r.id)) return false;
-      if (r.sourceId && alreadyHave.has(r.sourceId)) return false;
+      const srcId = r.sourceId || r.id;
+      if (dismissed.has(srcId))     return false;  // user dismissed this — never re-add
+      if (alreadyHave.has(r.id))    return false;
+      if (alreadyHave.has(srcId))   return false;
       return CARRY_OVER_STATUSES.includes(r.status);
     });
 
@@ -558,10 +578,11 @@ function mergeState(d) {
   if (d.meta)         state.meta         = { ...state.meta,         ...d.meta };
   if (d.kpis)         state.kpis         = { ...state.kpis,         ...d.kpis };
   if (d.generalNotes) state.generalNotes = { ...state.generalNotes, ...d.generalNotes };
-  if (Array.isArray(d.handover))  state.handover  = d.handover;
-  if (Array.isArray(d.noshow))    state.noshow    = d.noshow;
-  if (Array.isArray(d.incognito)) state.incognito = d.incognito;
-  if (Array.isArray(d.pod))       state.pod       = d.pod;
+  if (Array.isArray(d.handover))          state.handover          = d.handover;
+  if (Array.isArray(d.noshow))            state.noshow            = d.noshow;
+  if (Array.isArray(d.incognito))         state.incognito         = d.incognito;
+  if (Array.isArray(d.pod))               state.pod               = d.pod;
+  if (Array.isArray(d.dismissedSourceIds)) state.dismissedSourceIds = d.dismissedSourceIds;
 }
 
 // ── Collect ───────────────────────────────────────────────────
@@ -1021,7 +1042,14 @@ function setupListeners() {
           if (!isUndoRedo && !isRestoring && oldVal !== el.value) {
             addActivityLog(`Changed ${tableNameToName(tbl)} status to "${el.value}"`, 'edit');
           }
-          autoSave();
+          // If this carried-over task is now "finished", permanently dismiss it
+          // so carryover never pulls it back from yesterday on the next refresh.
+          const finishedStatuses = ['Done','Cancelled','Charged','Waived','Refunded','Info'];
+          if (row.carriedFrom && finishedStatuses.includes(el.value)) {
+            dismissCarriedRow(row);
+          } else {
+            autoSave();
+          }
           const s = tbl === 'ic' ? priorityStyle(el.value) : tbl === 'ns' ? noshowStatusStyle(el.value) : statusStyle(el.value);
           el.style.background = s.bg; el.style.color = s.color; el.style.borderColor = s.border;
         }
@@ -1042,7 +1070,12 @@ function setupListeners() {
       deletedName = deletedItem?.heartist || (deletedItem?.note ? deletedItem.note.substring(0,30) : 'task');
       state.handover = state.handover.filter(r => r.id !== id);
       renderHandoverTable();
-      if (deletedItem) addToTrash('ho', deletedItem);
+      if (deletedItem) {
+        addToTrash('ho', deletedItem);
+        // If this was a carried-over task, permanently dismiss it so
+        // carryover never pulls it back from yesterday on next refresh.
+        if (deletedItem.carriedFrom) dismissCarriedRow(deletedItem);
+      }
       addActivityLog(`Deleted handover task: "${deletedName}"`, 'delete');
     }
     if (tbl === 'ns') { 
