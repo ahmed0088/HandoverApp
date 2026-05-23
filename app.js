@@ -702,7 +702,7 @@ function makeNoshowRow(r, i) {
   const tr = document.createElement('tr');
   const ss = noshowStatusStyle(r.status);
   tr.innerHTML = `
-    <tr><div class="row-num">${i+1}</div></td>
+    <td><div class="row-num">${i+1}</div></td>
     <td><input class="cell-input" value="${escapeHtml(r.name)}" data-id="${r.id}" data-field="name" data-tbl="ns" placeholder="Guest name"></td>
     <td><input class="cell-input" value="${escapeHtml(r.resv)}" data-id="${r.id}" data-field="resv" data-tbl="ns" placeholder="Resv. / Room no."></td>
     <td><input class="cell-input" type="date" value="${r.arrival||''}" data-id="${r.id}" data-field="arrival" data-tbl="ns"></td>
