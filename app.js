@@ -468,9 +468,17 @@ async function carryOverFromYesterday() {
   if (!firebaseEnabled || !db) return;
   if (carryOverDone) return;
   carryOverDone = true;
+
+  // ── SAFETY GUARD: only carry over when the user is viewing TODAY's real date.
+  //    If the date picker was manually changed to any other day we skip entirely,
+  //    so browsing past/future dates never accidentally migrates tasks.
+  const realToday = todayISO();
+  const viewingDate = state.meta.date || realToday;
+  if (viewingDate !== realToday) return;
+
   try {
     const hotelId = currentHotel?.id || 'default';
-    const todayDate = new Date(state.meta.date || todayISO());
+    const todayDate = new Date(realToday);
 
     // Build set of originIds already in today so we never duplicate
     const todayOriginIds = new Set(
@@ -580,7 +588,9 @@ function onDateChange() {
   if (currentRef && firebaseEnabled) currentRef.off();
   state = freshState();
   state.meta.date = d;
-  carryOverDone = false;   // allow carryover to re-run for the new date
+  // Only reset carryOverDone when navigating back to the real today.
+  // Browsing any other date must never trigger task migration.
+  carryOverDone = (d !== todayISO());
   if (firebaseEnabled) loadFromDB();
   else fallbackLS();
   renderAll();
