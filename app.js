@@ -70,7 +70,9 @@ function buildHotelSelector() {
     <div class="hotel-card" onclick="selectHotel('${h.id}', true)">
       <div class="hotel-card-accent" style="background:${h.color}"></div>
       <div class="hotel-card-logo-wrap">
-        ${h.logoBadge}
+        <img class="hotel-card-logo" src="${h.logo}" alt="${escapeHtml(h.short)} logo"
+          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div class="hotel-card-logo-fallback" style="display:none;color:${h.color}">${escapeHtml(h.short)}</div>
       </div>
       <div class="hotel-card-info">
         <div class="hotel-card-name">${escapeHtml(h.name)}</div>
@@ -413,6 +415,8 @@ function setFBStatus(cls, txt) {
 }
 
 function lsKey()  { return `fo_v3_${currentHotel?.id||'default'}_${getDateKey()}`; }
+// localStorage key for the carryover-done flag (fallback when Firebase is offline)
+function lsCarryKey() { return `fo_carry_done_${currentHotel?.id||'default'}_${getDateKey()}`; }
 function getDateKey() { return (state.meta.date || todayISO()).replace(/-/g,'_'); }
 function dbPath() { return `${DB_ROOT}/${currentHotel?.id||'default'}/${getDateKey()}`; }
 
@@ -422,20 +426,6 @@ function fallbackLS() {
 
 function loadFromDB() {
   if (currentRef) currentRef.off();
-
-  // ── Step 1: render instantly from localStorage so the UI is never blank ──
-  const cached = localStorage.getItem(lsKey());
-  if (cached) {
-    try {
-      isLoading = true;
-      mergeState(JSON.parse(cached));
-      isLoading = false;
-      renderAll();
-      if (historyStack.length === 0) pushToHistory();
-    } catch(e) {}
-  }
-
-  // ── Step 2: fetch today from Firebase, then run carryover in parallel ──
   currentRef = db.ref(dbPath());
   currentRef.once('value', snap => {
     const d = snap.val();
@@ -444,6 +434,7 @@ function loadFromDB() {
       mergeState(d);
       isLoading = false;
     }
+    // After loading today, check yesterday for unfinished tasks
     carryOverFromYesterday().then(() => {
       renderAll();
       if (historyStack.length === 0) pushToHistory();
@@ -455,7 +446,7 @@ function loadFromDB() {
 // Statuses considered "not done" — these carry over to the next day
 const CARRY_OVER_STATUSES = ['Pending', 'In Progress', 'Urgent', 'Follow Up'];
 
-// Guard: carry-over runs at most once per page session
+// In-memory guard: prevents double-run within the same page session
 let carryOverDone = false;
 
 // Each row from yesterday gets a stable originId = its own id (or its originId
@@ -464,91 +455,83 @@ let carryOverDone = false;
 // yesterday row whose originId is already present — that's the entire dedup.
 async function carryOverFromYesterday() {
   if (!firebaseEnabled || !db) return;
+  // In-memory guard: never run twice in the same session
   if (carryOverDone) return;
   carryOverDone = true;
 
-  // ── SAFETY GUARD: only carry over when the user is viewing TODAY's real date.
-  //    If the date picker was manually changed to any other day we skip entirely,
-  //    so browsing past/future dates never accidentally migrates tasks.
-  const realToday = todayISO();
-  const viewingDate = state.meta.date || realToday;
-  if (viewingDate !== realToday) return;
-
   try {
-    const hotelId = currentHotel?.id || 'default';
-    const todayDate = new Date(realToday);
+    const todayDateKey = getDateKey();
+    const todayNodePath = `${DB_ROOT}/${currentHotel?.id||'default'}/${todayDateKey}`;
+    // Separate path for the carry flag — completely outside the date node
+    // so saveToDB() can never overwrite it no matter what write method it uses.
+    const flagPath = `${DB_ROOT}/${currentHotel?.id||'default'}/_carryFlags/${todayDateKey}`;
 
-    // Build set of originIds already in today so we never duplicate
+    // ── PERSISTENT GUARD ───────────────────────────────────────
+    // Layer 1: localStorage (instant, no network). Set once and survives refreshes.
+    if (localStorage.getItem(lsCarryKey()) === 'done') return;
+    // Layer 2: Firebase flag at a path saveToDB() never touches.
+    const flagSnap = await db.ref(flagPath).once('value');
+    if (flagSnap.val() === true) {
+      // Warm up the localStorage fast-path so next check never hits Firebase
+      try { localStorage.setItem(lsCarryKey(), 'done'); } catch(e) {}
+      return;
+    }
+    // ──────────────────────────────────────────────────────────
+
+    const todayDate = new Date(state.meta.date || todayISO());
+    const yesterday = new Date(todayDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yDateStr = yesterday.toISOString().slice(0,10);
+    const yKey     = yDateStr.replace(/-/g,'_');
+    const yPath    = `${DB_ROOT}/${currentHotel?.id||'default'}/${yKey}`;
+
+    const ySnap = await db.ref(yPath).once('value');
+    const yData = ySnap.val();
+    if (!yData || !Array.isArray(yData.handover)) {
+      // No yesterday data — still set BOTH flags so we never re-check on reload
+      await db.ref(flagPath).set(true);
+      try { localStorage.setItem(lsCarryKey(), 'done'); } catch(e) {}
+      return;
+    }
+
+    // Build a set of every originId already present in today's list.
+    // originId is the immutable ID of the very first version of a row —
+    // it never changes even after multiple carry-overs.
     const todayOriginIds = new Set(
       state.handover.map(r => r.originId || r.id)
     );
 
-    let totalMoved = 0;
-    let toAdd = [];
-
-    // Build all past-day paths upfront
-    const pastDays = Array.from({ length: 30 }, (_, i) => {
-      const d = new Date(todayDate);
-      d.setDate(d.getDate() - (i + 1));
-      const dateStr = d.toISOString().slice(0, 10);
-      return { dateStr, key: dateStr.replace(/-/g, '_'), path: `${DB_ROOT}/${hotelId}/${dateStr.replace(/-/g, '_')}` };
+    const unfinished = yData.handover.filter(r => {
+      if (!r.note && !r.heartist) return false;
+      if (!CARRY_OVER_STATUSES.includes(r.status)) return false;
+      // The originId of this yesterday row — trace back to the very first id
+      const origin = r.originId || r.id;
+      // If today already has a row with this originId, skip — already here
+      return !todayOriginIds.has(origin);
     });
 
-    // Fetch ALL 30 days in parallel — one round-trip instead of 30
-    const snaps = await Promise.all(pastDays.map(p => db.ref(p.path).once('value')));
+    // Always write the persistent flag BEFORE touching state, so that even if
+    // something errors below, we won't loop and add duplicates on the next load.
+    await db.ref(flagPath).set(true);
+    try { localStorage.setItem(lsCarryKey(), 'done'); } catch(e) {}
 
-    // Process results and collect writes to do in parallel too
-    const writes = [];
-    snaps.forEach((snap, i) => {
-      const data = snap.val();
-      if (!data || !Array.isArray(data.handover)) return;
+    if (unfinished.length === 0) return;
 
-      const unfinished = data.handover.filter(r => {
-        if (!r.note && !r.heartist) return false;
-        if (!CARRY_OVER_STATUSES.includes(r.status)) return false;
-        const origin = r.originId || r.id;
-        return !todayOriginIds.has(origin);
-      });
+    const carriedDate = yData.meta?.date || yDateStr;
+    const carried = unfinished.map(r => ({
+      ...r,
+      id:          uid(),          // fresh Firebase id for today
+      originId:    r.originId || r.id,  // IMMUTABLE — always the very first id
+      carriedFrom: carriedDate,
+      status:      r.status
+    }));
 
-      if (unfinished.length === 0) return;
-
-      const remaining = data.handover.filter(r => {
-        if (!CARRY_OVER_STATUSES.includes(r.status)) return true;
-        if (!r.note && !r.heartist) return true;
-        const origin = r.originId || r.id;
-        return todayOriginIds.has(origin);
-      });
-
-      // Queue the write to remove moved tasks from this past day
-      writes.push(db.ref(pastDays[i].path).update({ handover: remaining }));
-
-      const sourceLabel = data.meta?.date || pastDays[i].dateStr;
-      unfinished.forEach(r => {
-        const origin = r.originId || r.id;
-        todayOriginIds.add(origin);
-        toAdd.push({
-          ...r,
-          id:          uid(),
-          originId:    origin,
-          carriedFrom: sourceLabel,
-          status:      r.status
-        });
-      });
-
-      totalMoved += unfinished.length;
-    });
-
-    // Fire all the past-day cleanup writes in parallel
-    if (writes.length > 0) await Promise.all(writes);
-
-    if (totalMoved === 0) return;
-
-    // Drop lone empty placeholder, then prepend moved rows
+    // Drop lone empty placeholder, then prepend carried rows
     if (state.handover.length === 1 && !state.handover[0].note && !state.handover[0].heartist) {
       state.handover = [];
     }
-    state.handover = [...toAdd, ...state.handover];
-    showToast(`${totalMoved} unfinished task${totalMoved > 1 ? 's' : ''} moved to today`);
+    state.handover = [...carried, ...state.handover];
+    showToast(`${carried.length} unfinished task${carried.length > 1 ? 's' : ''} carried over from yesterday`);
     saveToDB();
   } catch(e) {
     console.warn('Carryover check failed', e);
@@ -562,7 +545,7 @@ function saveToDB() {
     try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
     return;
   }
-  db.ref(dbPath()).set(saveState).catch(() => showToast('Save failed', true));
+  db.ref(dbPath()).update(saveState).catch(() => showToast('Save failed', true));
   try { localStorage.setItem(lsKey(), JSON.stringify(saveState)); } catch(e) {}
   isDirty = false;
 }
@@ -586,9 +569,7 @@ function onDateChange() {
   if (currentRef && firebaseEnabled) currentRef.off();
   state = freshState();
   state.meta.date = d;
-  // Only reset carryOverDone when navigating back to the real today.
-  // Browsing any other date must never trigger task migration.
-  carryOverDone = (d !== todayISO());
+  carryOverDone = false;   // allow carryover to re-run for the new date
   if (firebaseEnabled) loadFromDB();
   else fallbackLS();
   renderAll();
@@ -695,26 +676,55 @@ function renderNotes() {
 }
 
 // ── HANDOVER TABLE ────────────────────────────────────────────
-function emptyTask()    { return { id:uid(), date:todayISO(), heartist:state.meta.agent||'', note:'', update:'', status:'Pending' }; }
+function emptyTask()    { return { id:uid(), date:todayISO(), heartist:'', note:'', update:'', status:'Pending' }; }
 
 function renderHandoverTable() {
   if (!state.handover.length) state.handover.push(emptyTask());
-  renderDesktopTable('heartistBody', state.handover, makeTaskRow);
-  renderMobileList('heartistMobileList', state.handover, makeTaskCard);
+
+  // Split: done/cancelled go to completed section, rest stay in active
+  const activeTasks    = state.handover.filter(r => r.status !== 'Done' && r.status !== 'Cancelled');
+  const completedTasks = state.handover.filter(r => r.status === 'Done' || r.status === 'Cancelled');
+
+  // Render active tasks (main table)
+  renderDesktopTable('heartistBody', activeTasks, makeTaskRow);
+  renderMobileList('heartistMobileList', activeTasks, makeTaskCard);
+
+  // Render completed tasks (separate section)
+  const compDesktop = document.getElementById('completedBody');
+  const compMobile  = document.getElementById('completedMobileList');
+  const compSection = document.getElementById('section-completed');
+
+  if (compSection) compSection.style.display = completedTasks.length ? '' : 'none';
+
+  if (compDesktop) {
+    if (completedTasks.length) {
+      renderDesktopTable('completedBody', completedTasks, makeTaskRow);
+    } else {
+      compDesktop.innerHTML = '';
+    }
+  }
+  if (compMobile) {
+    if (completedTasks.length) {
+      renderMobileList('completedMobileList', completedTasks, makeTaskCard);
+    } else {
+      compMobile.innerHTML = '';
+    }
+  }
+
+  // Badge counts
+  const compBadge = document.getElementById('completedCount');
+  if (compBadge) compBadge.textContent = completedTasks.length + (completedTasks.length === 1 ? ' task' : ' tasks');
+
   applyStatusColors();
   updateCounts();
 }
 
 function makeTaskRow(r, i) {
   const tr = document.createElement('tr');
-  tr.dataset.id  = r.id;
-  tr.dataset.idx = i;
-  tr.dataset.tbl = 'ho';
-  tr.draggable   = true;
   const ss = statusStyle(r.status);
   const carriedBadge = r.carriedFrom ? `<div class="carried-badge" title="Carried over from ${r.carriedFrom}">↩ ${r.carriedFrom}</div>` : '';
   tr.innerHTML = `
-    <td><div class="drag-handle" title="Drag to reorder">⠿</div></td>
+    <td><div class="row-num">${i+1}</div></td>
     <td><input class="cell-input" type="date" value="${r.date||''}" data-id="${r.id}" data-field="date" data-tbl="ho"></td>
     <td><input class="cell-input" value="${escapeHtml(r.heartist)}" data-id="${r.id}" data-field="heartist" data-tbl="ho" placeholder="Agent name"></td>
     <td><textarea class="cell-textarea" data-id="${r.id}" data-field="note" data-tbl="ho" placeholder="Task or note…">${escapeHtml(r.note)}</textarea>${carriedBadge}</td>
@@ -729,16 +739,9 @@ function makeTaskRow(r, i) {
 function makeTaskCard(r, i) {
   const div = document.createElement('div');
   div.className = 'm-card';
-  div.dataset.id  = r.id;
-  div.dataset.idx = i;
-  div.dataset.tbl = 'ho';
   const ss = statusStyle(r.status);
   div.innerHTML = `
     <div class="m-card-header">
-      <div class="mobile-reorder-btns">
-        <button class="reorder-btn" data-move="up" data-tbl="ho" data-id="${r.id}" title="Move up">▲</button>
-        <button class="reorder-btn" data-move="down" data-tbl="ho" data-id="${r.id}" title="Move down">▼</button>
-      </div>
       <span class="m-card-num">Task #${i+1}</span>
       <div style="flex:1;max-width:140px">
         <select class="status-sel" data-id="${r.id}" data-tbl="ho" style="background:${ss.bg};color:${ss.color};border-color:${ss.border};width:100%;padding:5px 8px;font-size:11px">
@@ -756,14 +759,25 @@ function makeTaskCard(r, i) {
   return div;
 }
 
-function addHandoverRow() {
-  collectMeta(); // ensure state.meta.agent is up to date before creating the row
+function addHandoverRow() { 
   const newRow = emptyTask();
   state.handover.push(newRow); 
   renderHandoverTable(); 
   addActivityLog(`Added handover task`, 'add');
   pushToHistory();
   autoSave(); 
+}
+
+function toggleCompletedCollapse() {
+  const wrap = document.getElementById('completedBody-wrap');
+  const btn  = document.getElementById('completedToggleBtn');
+  const chev = document.getElementById('completedChevron');
+  if (!wrap) return;
+  const isHidden = wrap.style.display === 'none';
+  wrap.style.display = isHidden ? '' : 'none';
+  if (btn)  btn.innerHTML = (isHidden
+    ? '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" id="completedChevron"><path d="M5 8l5 5 5-5"/></svg> Hide'
+    : '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" id="completedChevron"><path d="M5 12l5-5 5 5"/></svg> Show');
 }
 
 function clearHandover() {
@@ -954,7 +968,6 @@ function renderDesktopTable(tbodyId, arr, makeRowFn) {
   if (!tbody) return;
   tbody.innerHTML = '';
   arr.forEach((r,i) => tbody.appendChild(makeRowFn(r,i)));
-  initDragDrop(tbody);
 }
 
 function renderMobileList(listId, arr, makeCardFn) {
@@ -985,59 +998,6 @@ function showTab(tab) {
   if (tab === 'log') { openLogDrawer(); return; }
 }
 
-// ── Drag-and-drop reorder (desktop) ──────────────────────────
-function initDragDrop(tbody) {
-  let dragSrc = null;
-  tbody.querySelectorAll('tr[draggable]').forEach(tr => {
-    tr.addEventListener('dragstart', e => {
-      dragSrc = tr;
-      tr.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-    });
-    tr.addEventListener('dragend', () => {
-      tr.classList.remove('dragging');
-      tbody.querySelectorAll('tr').forEach(r => r.classList.remove('drag-over'));
-      dragSrc = null;
-    });
-    tr.addEventListener('dragover', e => {
-      e.preventDefault();
-      if (tr === dragSrc) return;
-      tbody.querySelectorAll('tr').forEach(r => r.classList.remove('drag-over'));
-      tr.classList.add('drag-over');
-    });
-    tr.addEventListener('drop', e => {
-      e.preventDefault();
-      if (!dragSrc || dragSrc === tr) return;
-      const tbl    = tr.dataset.tbl;
-      const arr    = getTblArray(tbl);
-      if (!arr) return;
-      const fromIdx = arr.findIndex(r => r.id === dragSrc.dataset.id);
-      const toIdx   = arr.findIndex(r => r.id === tr.dataset.id);
-      if (fromIdx < 0 || toIdx < 0) return;
-      const [moved] = arr.splice(fromIdx, 1);
-      arr.splice(toIdx, 0, moved);
-      renderTable(tbl);
-      pushToHistory();
-      autoSave();
-    });
-  });
-}
-
-// Mobile up/down reorder
-function moveRow(tbl, id, direction) {
-  const arr = getTblArray(tbl);
-  if (!arr) return;
-  const idx = arr.findIndex(r => r.id === id);
-  if (idx < 0) return;
-  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-  if (swapIdx < 0 || swapIdx >= arr.length) return;
-  [arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]];
-  renderTable(tbl);
-  pushToHistory();
-  autoSave();
-}
-window.moveRow = moveRow;
-
 // ── Event listeners ───────────────────────────────────────────
 let listenersSetup = false;
 function setupListeners() {
@@ -1047,13 +1007,6 @@ function setupListeners() {
   let editTimeout;
   let lastEditValue = {};
   
-  // Mobile reorder buttons
-  document.addEventListener('click', e => {
-    const btn = e.target.closest('.reorder-btn');
-    if (!btn) return;
-    moveRow(btn.dataset.tbl, btn.dataset.id, btn.dataset.move);
-  });
-
   document.addEventListener('focusin', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
       userIsTyping = true;
@@ -1378,13 +1331,19 @@ function exportPDF() {
     return (val !== undefined && val !== null && val !== '') ? val : 0;
   };
 
-  const taskRows = state.handover.filter(r=>r.date||r.heartist||r.note||r.update).map((r,i) => {
+  // Active tasks only — Done/Cancelled are excluded from the PDF export
+  const activePdfTasks = state.handover.filter(r =>
+    (r.date||r.heartist||r.note||r.update) &&
+    r.status !== 'Done' && r.status !== 'Cancelled'
+  );
+  const taskRows = activePdfTasks.map((r,i) => {
     const sc = statusStyle(r.status);
+    const carried = r.carriedFrom ? `<div style="font-size:6pt;color:#7A8899;margin-top:2pt">↩ from ${r.carriedFrom}</div>` : '';
     return `<tr>
-      <td class="c" style="color:#8A9BB0">${i+1}</td>
+      <td class="c" style="color:#8A9BB0;font-size:7pt">${i+1}</td>
       <td style="white-space:nowrap">${fmt(r.date)}</td>
       <td><strong>${escapeHtml(r.heartist)||'—'}</strong></td>
-      <td>${escapeHtml(r.note)||'—'}</td>
+      <td>${escapeHtml(r.note)||'—'}${carried}</td>
       <td>${escapeHtml(r.update)||'—'}</td>
       <td><span class="badge" style="background:${sc.bg};color:${sc.color};border:1pt solid ${sc.border}">${r.status}</span></td>
     </tr>`;
@@ -1455,208 +1414,235 @@ function exportPDF() {
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>${hotel.name} — Handover ${fmt(m.date)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',sans-serif;font-size:8.5pt;color:#1A1F2E;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-@page{size:A4;margin:12mm 12mm 15mm 12mm}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:'Inter',sans-serif;font-size:8.5pt;color:#18212E;background:#fff;line-height:1.5}
+@page{size:A4;margin:0}
 
-.header{display:flex;align-items:stretch;margin-bottom:9pt;border-radius:8pt;overflow:hidden;box-shadow:0 2pt 12pt rgba(0,0,0,.15)}
-.header-stripe{width:7pt;flex-shrink:0;background:linear-gradient(180deg,${hotel.color} 0%,${hotel.color}88 100%)}
-.header-body{background:linear-gradient(135deg,#0A0F1E 0%,#1C2840 50%,#0A0F1E 100%);flex:1;padding:11pt 16pt;display:flex;align-items:center;justify-content:space-between;gap:12pt}
-.h-brand{}
-.h-stars{font-size:8pt;letter-spacing:4pt;color:${hotel.color};margin-bottom:4pt;opacity:.8}
-.h-name{font-family:'Playfair Display',serif;font-size:20pt;font-weight:700;color:#fff;letter-spacing:.3pt;line-height:1;margin-bottom:3pt}
-.h-sub{font-size:7.5pt;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:1.5pt}
-.h-right{text-align:right}
-.h-dow{font-size:6.5pt;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:1pt;margin-bottom:2pt}
-.h-date{font-family:'Playfair Display',serif;font-size:19pt;font-weight:700;color:${hotel.color};line-height:1}
-.h-hotel-sub{font-size:6.5pt;color:rgba(255,255,255,.3);margin-top:3pt;text-align:right}
-.h-logo{height:38px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.07);border-radius:8px;padding:4px 8px;border:1px solid rgba(255,255,255,.1);margin-left:10px}
-.h-logo img{max-height:28px;width:auto}
+/* ── Cover strip ── */
+.cover{width:100%;height:52mm;background:linear-gradient(135deg,#0B1120 0%,#162035 40%,#0B1120 100%);display:flex;align-items:stretch;position:relative;overflow:hidden;page-break-after:avoid}
+.cover-accent{width:6mm;background:linear-gradient(180deg,${hotel.color} 0%,${hotel.color}99 100%);flex-shrink:0}
+.cover-inner{flex:1;display:flex;align-items:center;justify-content:space-between;padding:0 14mm}
+.cover-noise{position:absolute;inset:0;background-image:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Ccircle cx='30' cy='30' r='1'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");pointer-events:none}
+.cover-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:20mm 20mm;pointer-events:none}
+.cv-left{}
+.cv-tag{font-size:6pt;font-weight:600;letter-spacing:2.5pt;text-transform:uppercase;color:${hotel.color};opacity:.9;margin-bottom:5pt}
+.cv-name{font-family:'Playfair Display',serif;font-size:26pt;font-weight:700;color:#fff;line-height:1;letter-spacing:-.3pt;margin-bottom:4pt}
+.cv-sub{font-size:7.5pt;color:rgba(255,255,255,.45);letter-spacing:.8pt;text-transform:uppercase}
+.cv-right{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:8pt}
+.cv-date-label{font-size:6pt;font-weight:600;letter-spacing:2pt;text-transform:uppercase;color:rgba(255,255,255,.3)}
+.cv-date{font-family:'Playfair Display',serif;font-size:22pt;font-weight:700;color:${hotel.color};line-height:1}
+.cv-dow{font-size:7.5pt;color:rgba(255,255,255,.4);margin-top:1pt}
+.cv-logo{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8pt;padding:6pt 10pt;display:flex;align-items:center;justify-content:center;min-width:36mm}
+.cv-logo img{max-height:22pt;max-width:36mm;width:auto;filter:brightness(0) invert(1);opacity:.8}
+.cv-stars{font-size:8pt;letter-spacing:3pt;color:${hotel.color};opacity:.7}
 
-.meta{display:grid;grid-template-columns:repeat(6,1fr);gap:4pt;margin-bottom:9pt}
-.mt{background:#F8F7F4;border:1pt solid #E6E1D8;border-radius:5pt;padding:6pt 9pt;position:relative;overflow:hidden}
-.mt::after{content:'';position:absolute;top:0;left:0;right:0;height:2pt;background:linear-gradient(90deg,${hotel.color},${hotel.color}44)}
-.mt .l{font-size:5.5pt;font-weight:700;color:#7A8899;text-transform:uppercase;letter-spacing:.6pt;margin-bottom:2pt}
-.mt .v{font-size:8.5pt;font-weight:600;color:#1A1F2E;line-height:1.3}
-.mt.hl .v{color:${hotel.color=='#C8A96E'?'#7A5A1A':'#1A3A7A'}}
+/* ── Body padding ── */
+.body{padding:8mm 14mm 10mm}
 
-.sec{margin-bottom:9pt;page-break-inside:avoid}
-.sec-hd{display:flex;align-items:center;gap:6pt;margin-bottom:5pt}
-.sec-icon{width:18pt;height:18pt;border-radius:4pt;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.sec-icon svg{width:11pt;height:11pt}
-.sec-title{font-family:'Playfair Display',serif;font-size:13pt;font-weight:700;color:#1A1F2E}
-.sec-line{flex:1;height:.75pt;background:linear-gradient(90deg,#E6E1D8,transparent)}
-.sec-cnt{font-size:6.5pt;color:#7A8899;background:#F0EDE7;padding:2pt 7pt;border-radius:20pt;border:1pt solid #E6E1D8}
+/* ── Meta cards ── */
+.meta-row{display:grid;grid-template-columns:repeat(6,1fr);gap:4pt;margin-bottom:8pt}
+.mc{background:#F7F8FA;border:1pt solid #E8ECF0;border-radius:5pt;padding:5pt 8pt;position:relative;overflow:hidden}
+.mc::before{content:'';position:absolute;top:0;left:0;right:0;height:2pt;background:${hotel.color};opacity:.6}
+.mc .ml{font-size:5.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.7pt;color:#8A97A8;margin-bottom:2pt}
+.mc .mv{font-size:8pt;font-weight:600;color:#18212E}
+.mc.accent .mv{color:${hotel.color === '#C8A96E' ? '#6B4C0E' : hotel.color}}
 
-.tw{border:1pt solid #E6E1D8;border-radius:0 0 6pt 6pt;overflow:hidden}
+/* ── Section header ── */
+.sh{display:flex;align-items:center;gap:7pt;margin:9pt 0 5pt;page-break-after:avoid}
+.sh-pill{display:flex;align-items:center;gap:5pt;padding:4pt 10pt 4pt 6pt;border-radius:20pt;font-size:7pt;font-weight:700;letter-spacing:.4pt;text-transform:uppercase;white-space:nowrap}
+.sh-pill svg{width:11pt;height:11pt;flex-shrink:0}
+.sh-line{flex:1;height:.75pt;background:linear-gradient(90deg,#E0E6EE,transparent)}
+.sh-badge{font-size:6pt;font-weight:700;padding:2pt 8pt;border-radius:20pt;background:#EEF1F5;color:#5A6A7E;border:1pt solid #DDE2EA;white-space:nowrap}
+
+/* ── Table ── */
+.tw{border-radius:6pt;overflow:hidden;border:1pt solid #E0E6EE}
 table{width:100%;border-collapse:collapse;font-size:7.5pt}
-thead tr{background:linear-gradient(135deg,#0A0F1E 0%,#1C2840 100%)}
-thead th{color:rgba(255,255,255,.7);font-weight:700;padding:5pt 7pt;text-align:left;font-size:6.5pt;text-transform:uppercase;letter-spacing:.5pt}
-thead th:first-child{border-radius:4pt 0 0 0}
-thead th:last-child{border-radius:0 4pt 0 0}
-tbody tr{border-bottom:.75pt solid #F0EDE7}
+thead tr{background:linear-gradient(135deg,#18212E 0%,#2A3A52 100%)}
+thead th{color:rgba(255,255,255,.65);font-weight:600;padding:5pt 7pt;text-align:left;font-size:6pt;text-transform:uppercase;letter-spacing:.6pt}
+tbody tr{border-bottom:.75pt solid #EEF1F5}
 tbody tr:last-child{border-bottom:none}
-tbody tr:nth-child(even) td{background:#FAFAF8}
-tbody td{padding:5pt 7pt;vertical-align:top;color:#1A1F2E;line-height:1.45}
+tbody tr:nth-child(even) td{background:#F9FAFC}
+tbody td{padding:5pt 7pt;vertical-align:top;color:#18212E;line-height:1.45}
 .c{text-align:center}
+.muted{color:#8A97A8;font-size:6.5pt}
 
-.kpi thead tr{background:linear-gradient(135deg,#1A3D8A 0%,#2D5299 100%)}
-.kpi-tot td{background:linear-gradient(135deg,#0A0F1E,#1C2840)!important;color:${hotel.color}!important;font-weight:700;font-size:8pt;padding:6pt 7pt}
-.kpi-tot td:first-child{border-radius:0 0 0 4pt}
-.kpi-tot td:last-child{border-radius:0 0 4pt 0}
+/* ── KPI ── */
+.kpi-hd{background:linear-gradient(135deg,#1A3A6E 0%,#2250A0 100%)!important}
+.kpi-tot td{background:linear-gradient(135deg,#18212E,#2A3A52)!important;color:${hotel.color}!important;font-weight:700;font-size:8pt;padding:6pt 7pt}
 
-.ns-hd{background:linear-gradient(135deg,#7A0A0A 0%,#991B1B 100%)!important}
-.ns-hd .sec-title{color:#FCA5A5!important}
+/* ── Badges ── */
+.badge{display:inline-flex;align-items:center;padding:2pt 7pt;border-radius:20pt;font-size:6.5pt;font-weight:700;white-space:nowrap}
+.sbadge{display:inline-flex;align-items:center;padding:2pt 8pt;border-radius:20pt;font-size:6.5pt;font-weight:700}
 
-.ic-hd{background:linear-gradient(135deg,#2A0A5A 0%,#4C1A8A 100%)!important}
-.ic-hd .sec-title{color:#C4A0F0!important}
-.ic-watermark{font-size:7pt;font-weight:700;color:#9B2020;background:#FDE8E8;border:1pt solid #F5B0B0;border-radius:4pt;padding:4pt 8pt;display:inline-block;margin-bottom:5pt;text-transform:uppercase;letter-spacing:.5pt}
+/* ── No show section ── */
+.sh-ns .sh-pill{background:#FEE2E2;color:#991B1B}
+.sh-ns .sh-line{background:linear-gradient(90deg,#FCA5A5,transparent)}
 
-.badge{display:inline-block;padding:2pt 6pt;border-radius:20pt;font-size:6.5pt;font-weight:700;border:1pt solid transparent;white-space:nowrap}
-.sbadge{display:inline-block;padding:2pt 7pt;border-radius:20pt;font-size:6.5pt;font-weight:700}
+/* ── Incognito section ── */
+.sh-ic .sh-pill{background:#EDE9FE;color:#5B21B6}
+.sh-ic .sh-line{background:linear-gradient(90deg,#C4B5FD,transparent)}
+.ic-warn{font-size:6.5pt;font-weight:700;color:#991B1B;background:#FEF2F2;border:1pt solid #FECACA;border-radius:4pt;padding:3pt 8pt;display:inline-block;margin-bottom:4pt;text-transform:uppercase;letter-spacing:.5pt}
 
-.div{height:.75pt;background:linear-gradient(90deg,${hotel.color},rgba(200,169,110,.1));margin:8pt 0}
+/* ── Signature ── */
+.divider{height:.75pt;background:linear-gradient(90deg,${hotel.color}88,rgba(200,200,200,.1));margin:10pt 0}
+.sig-row{display:grid;grid-template-columns:1fr 1fr;gap:10pt;margin-top:2pt;page-break-inside:avoid}
+.sig-box{border:1pt solid #E0E6EE;border-radius:6pt;padding:9pt 12pt 7pt;background:#F9FAFC;position:relative;overflow:hidden}
+.sig-box::before{content:'';position:absolute;top:0;left:0;right:0;height:2pt;background:${hotel.color};opacity:.5}
+.sig-lbl{font-size:5.5pt;font-weight:700;color:#8A97A8;text-transform:uppercase;letter-spacing:.6pt;margin-bottom:2pt}
+.sig-name{font-family:'Playfair Display',serif;font-size:12pt;font-weight:600;color:#18212E;margin-bottom:10pt}
+.sig-line{border-bottom:.75pt dashed #C0CCDA;margin-bottom:3pt}
+.sig-sub{font-size:5.5pt;color:#8A97A8;text-transform:uppercase;letter-spacing:.4pt}
 
-.sig-row{display:grid;grid-template-columns:1fr 1fr;gap:10pt;margin-top:10pt}
-.sig-box{border:1pt solid #E6E1D8;border-radius:5pt;padding:9pt 12pt 6pt;background:#FAFAF8;position:relative;overflow:hidden}
-.sig-box::before{content:'';position:absolute;top:0;left:0;right:0;height:2pt;background:linear-gradient(90deg,${hotel.color},transparent)}
-.sig-lbl{font-size:6pt;font-weight:700;color:#7A8899;text-transform:uppercase;letter-spacing:.5pt;margin-bottom:2pt}
-.sig-name{font-family:'Playfair Display',serif;font-size:11pt;font-weight:600;color:#1A1F2E;margin-bottom:9pt}
-.sig-line{border-bottom:.75pt solid #B0BCC8;margin-bottom:3pt}
-.sig-sub{font-size:6pt;color:#7A8899;text-transform:uppercase;letter-spacing:.4pt}
+/* ── Footer ── */
+.footer{margin-top:8pt;padding-top:5pt;border-top:.75pt solid #E0E6EE;display:flex;justify-content:space-between;align-items:center;font-size:6pt;color:#8A97A8}
+.f-left{display:flex;align-items:center;gap:5pt}
+.f-stars{color:${hotel.color};font-size:7pt;letter-spacing:2pt}
 
-.footer{margin-top:10pt;padding-top:6pt;border-top:.75pt solid #E6E1D8;display:flex;justify-content:space-between;align-items:center;font-size:6.5pt;color:#7A8899}
-.f-brand{display:flex;align-items:center;gap:5pt}
-.f-stars{color:${hotel.color};font-size:7.5pt;letter-spacing:2pt}
-
-@media print{body{font-size:8.5pt}.no-print{display:none}}
+@media print{.no-print{display:none}a{text-decoration:none}}
 </style>
 </head><body>
 
-<div class="header">
-  <div class="header-stripe"></div>
-  <div class="header-body">
-    <div class="h-brand">
-      <div class="h-stars">${'★'.repeat(hotel.stars)}</div>
-      <div class="h-name">${hotel.name}</div>
-      <div class="h-sub">Front Office — Shift Handover Report</div>
+<div class="cover">
+  <div class="cover-noise"></div>
+  <div class="cover-grid"></div>
+  <div class="cover-accent"></div>
+  <div class="cover-inner">
+    <div class="cv-left">
+      <div class="cv-tag">Front Office · Shift Handover</div>
+      <div class="cv-name">${hotel.name}</div>
+      <div class="cv-sub">Confidential Internal Document</div>
     </div>
-    <div style="display:flex;align-items:center;">
-      <div class="h-right">
-        <div class="h-dow">${dow}</div>
-        <div class="h-date">${fmt(m.date)}</div>
-        <div class="h-hotel-sub">Confidential document</div>
+    <div class="cv-right">
+      <div>
+        <div class="cv-date-label">Report Date</div>
+        <div class="cv-date">${fmt(m.date)}</div>
+        <div class="cv-dow">${dow}</div>
       </div>
-      <div class="h-logo">${hotelLogoHtml}</div>
+      <div class="cv-logo">
+        ${hotel.logo ? `<img src="${hotel.logo}" alt="${hotel.name}">` : `<span style="font-family:'Playfair Display',serif;font-size:16pt;font-weight:700;color:#fff;opacity:.8">${hotel.name.charAt(0)}</span>`}
+      </div>
+      <div class="cv-stars">${'★'.repeat(hotel.stars)}</div>
     </div>
   </div>
 </div>
 
-<div class="meta">
-  <div class="mt hl"><div class="l">Agent — Handing Over</div><div class="v">${escapeHtml(m.agent)||'—'}</div></div>
-  <div class="mt hl"><div class="l">Received By</div><div class="v">${escapeHtml(m.receiver)||'—'}</div></div>
-  <div class="mt"><div class="l">From Shift</div><div class="v">${escapeHtml(m.from)||'—'}</div></div>
-  <div class="mt"><div class="l">To Shift</div><div class="v">${escapeHtml(m.to)||'—'}</div></div>
-  <div class="mt"><div class="l">Date Generated</div><div class="v">${new Date().toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}</div></div>
-  <div class="mt"><div class="l">Time Generated</div><div class="v">${new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div></div>
+<div class="body">
+
+<div class="meta-row">
+  <div class="mc accent"><div class="ml">Handing Over</div><div class="mv">${escapeHtml(m.agent)||'—'}</div></div>
+  <div class="mc accent"><div class="ml">Received By</div><div class="mv">${escapeHtml(m.receiver)||'—'}</div></div>
+  <div class="mc"><div class="ml">From Shift</div><div class="mv">${escapeHtml(m.from)||'—'}</div></div>
+  <div class="mc"><div class="ml">To Shift</div><div class="mv">${escapeHtml(m.to)||'—'}</div></div>
+  <div class="mc"><div class="ml">Generated On</div><div class="mv">${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}</div></div>
+  <div class="mc"><div class="ml">Generated At</div><div class="mv">${new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div></div>
 </div>
 
-<div class="sec">
-  <div class="sec-hd">
-    <div class="sec-icon" style="background:#0A0F1E"><svg viewBox="0 0 20 20" fill="none" stroke="${hotel.color}" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v8a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="2" height="4" rx="1"/></svg></div>
-    <div class="sec-title">Heartist Handover Tasks</div>
-    <div class="sec-line"></div>
-    <div class="sec-cnt">${state.handover.filter(r=>r.note||r.heartist).length} tasks</div>
+<!-- HANDOVER TASKS -->
+<div class="sh">
+  <div class="sh-pill" style="background:#EEF5FF;color:#1A3A6E">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v8a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="2" height="4" rx="1"/></svg>
+    Heartist Handover Tasks
   </div>
-  <div class="tw">
-    <table>
-      <thead><tr><th style="width:3%">#</th><th style="width:9%">Date</th><th style="width:12%">Heartist</th><th style="width:28%">Task / Note</th><th style="width:28%">Update / Action</th><th style="width:10%">Status</th></tr></thead>
-      <tbody>${taskRows||'<tr><td colspan="6" style="text-align:center;color:#7A8899;font-style:italic;padding:10pt">No tasks recorded</td></tr>'}</tbody>
-    </table>
-  </div>
+  <div class="sh-line"></div>
+  <div class="sh-badge">${activePdfTasks.length} active task${activePdfTasks.length===1?"":"s"}</div>
+</div>
+<div class="tw">
+  <table>
+    <thead><tr>
+      <th style="width:3%">#</th>
+      <th style="width:9%">Date</th>
+      <th style="width:13%">Heartist</th>
+      <th style="width:30%">Task / Note</th>
+      <th style="width:29%">Update / Action Taken</th>
+      <th style="width:11%">Status</th>
+    </tr></thead>
+    <tbody>${taskRows||'<tr><td colspan="6" style="text-align:center;color:#8A97A8;font-style:italic;padding:12pt">No active tasks recorded</td></tr>'}</tbody>
+  </table>
 </div>
 
-<div class="sec">
-  <div class="sec-hd">
-    <div class="sec-icon" style="background:#1A3D8A"><svg viewBox="0 0 20 20" fill="none" stroke="#93C5FD" stroke-width="1.5"><path d="M4 15l4-4 3 3 5-6"/></svg></div>
-    <div class="sec-title">KPI Overview — All Shifts</div>
-    <div class="sec-line"></div>
+<!-- KPI -->
+<div class="sh" style="margin-top:10pt">
+  <div class="sh-pill" style="background:#EEF5FF;color:#1A3A6E">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 15l4-4 3 3 5-6"/></svg>
+    KPI Overview — All Shifts
   </div>
-  <div class="tw">
-    <table class="kpi">
-      <thead><tr><th>Shift</th>${fieldLabels.map(l => `<th class="c">${l}</th>`).join('')}</tr></thead>
-      <tbody>
-        ${kpiRows}
-        <tr class="kpi-tot"><td>TOTAL</td>${totals}</tr>
-      </tbody>
-    </table>
-  </div>
+  <div class="sh-line"></div>
+</div>
+<div class="tw">
+  <table class="kpi">
+    <thead class="kpi-hd"><tr><th>Shift</th>${fieldLabels.map(l=>`<th class="c">${l}</th>`).join('')}</tr></thead>
+    <tbody>
+      ${kpiRows}
+      <tr class="kpi-tot"><td style="font-size:7pt;letter-spacing:.5pt">TOTAL</td>${totals}</tr>
+    </tbody>
+  </table>
 </div>
 
 ${noshowRows ? `
-<div class="sec">
-  <div class="sec-hd ns-hd" style="background:linear-gradient(135deg,#7A0A0A,#991B1B);padding:5pt 8pt;border-radius:5pt">
-    <div class="sec-icon" style="background:rgba(0,0,0,.3)"><svg viewBox="0 0 20 20" fill="none" stroke="#FCA5A5" stroke-width="1.5"><circle cx="10" cy="8" r="3"/><path d="M4 18c0-3.314 2.686-6 6-6s6 2.686 6 6"/><path d="M16 4L4 16" stroke-width="1.8"/></svg></div>
-    <div class="sec-title" style="color:#FCA5A5">No Show Log</div>
-    <div class="sec-line" style="background:rgba(252,165,165,.3)"></div>
-    <div class="sec-cnt" style="background:rgba(0,0,0,.3);color:#FCA5A5;border-color:rgba(252,165,165,.3)">${state.noshow.filter(r=>r.name||r.resv).length} records</div>
+<div class="sh sh-ns" style="margin-top:10pt">
+  <div class="sh-pill">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="8" r="3"/><path d="M4 18c0-3.314 2.686-6 6-6s6 2.686 6 6"/><path d="M16 4L4 16" stroke-width="1.8"/></svg>
+    No Show Log
   </div>
-  <div class="tw">
-    <table>
-      <thead><tr><th style="width:3%">#</th><th style="width:18%">Guest Name</th><th style="width:14%">Resv. / Room</th><th style="width:10%">Arrival</th><th style="width:7%">Nights</th><th style="width:10%">Status</th><th>Remarks</th></tr></thead>
-      <tbody>${noshowRows}</tbody>
-    </table>
-  </div>
+  <div class="sh-line"></div>
+  <div class="sh-badge" style="background:#FEE2E2;color:#991B1B;border-color:#FECACA">${state.noshow.filter(r=>r.name||r.resv).length} records</div>
+</div>
+<div class="tw">
+  <table>
+    <thead><tr><th style="width:3%">#</th><th style="width:20%">Guest Name</th><th style="width:15%">Resv / Room</th><th style="width:11%">Arrival</th><th style="width:8%">Nights</th><th style="width:11%">Status</th><th>Remarks</th></tr></thead>
+    <tbody>${noshowRows}</tbody>
+  </table>
 </div>` : ''}
 
 ${incognitoRows ? `
-<div class="sec">
-  <div class="sec-hd" style="background:linear-gradient(135deg,#2A0A5A,#4C1A8A);padding:5pt 8pt;border-radius:5pt">
-    <div class="sec-icon" style="background:rgba(0,0,0,.3)"><svg viewBox="0 0 20 20" fill="none" stroke="#C4A0F0" stroke-width="1.5"><path d="M10 3C5 3 2 10 2 10s3 7 8 7 8-7 8-7-3-7-8-7z"/><circle cx="10" cy="10" r="2.5"/></svg></div>
-    <div class="sec-title" style="color:#C4A0F0">Incognito Rooms — CONFIDENTIAL</div>
-    <div class="sec-line" style="background:rgba(196,160,240,.3)"></div>
-    <div class="sec-cnt" style="background:rgba(0,0,0,.3);color:#C4A0F0;border-color:rgba(196,160,240,.3)">${state.incognito.filter(r=>r.room||r.name).length} rooms</div>
+<div class="sh sh-ic" style="margin-top:10pt">
+  <div class="sh-pill">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3C5 3 2 10 2 10s3 7 8 7 8-7 8-7-3-7-8-7z"/><circle cx="10" cy="10" r="2.5"/></svg>
+    Incognito Rooms — CONFIDENTIAL
   </div>
-  <div style="margin-bottom:4pt"><span class="ic-watermark">⚠ Confidential — Do Not Distribute</span></div>
-  <div class="tw">
-    <table>
-      <thead><tr><th style="width:3%">#</th><th style="width:8%">Room</th><th style="width:18%">Name / Alias</th><th style="width:10%">Check-In</th><th style="width:10%">Check-Out</th><th style="width:10%">Priority</th><th>Special Instructions</th></tr></thead>
-      <tbody>${incognitoRows}</tbody>
-    </table>
-  </div>
+  <div class="sh-line"></div>
+  <div class="sh-badge" style="background:#EDE9FE;color:#5B21B6;border-color:#C4B5FD">${state.incognito.filter(r=>r.room||r.name).length} rooms</div>
+</div>
+<div class="ic-warn">⚠ Confidential — Do Not Distribute</div>
+<div class="tw">
+  <table>
+    <thead><tr><th style="width:3%">#</th><th style="width:8%">Room</th><th style="width:18%">Name / Alias</th><th style="width:11%">Check-In</th><th style="width:11%">Check-Out</th><th style="width:10%">Priority</th><th>Special Instructions</th></tr></thead>
+    <tbody>${incognitoRows}</tbody>
+  </table>
 </div>` : ''}
 
 ${podRows ? `
-<div class="sec">
-  <div class="sec-hd">
-    <div class="sec-icon" style="background:#0D4B8A"><svg viewBox="0 0 20 20" fill="none" stroke="#93C5FD" stroke-width="1.5"><rect x="2" y="7" width="16" height="11" rx="1"/><path d="M6 7V5a4 4 0 018 0v2"/></svg></div>
-    <div class="sec-title">Priority Of Day — POD Rooms</div>
-    <div class="sec-line"></div>
-    <div class="sec-cnt">${state.pod.filter(r=>r.room||r.name).length} rooms</div>
+<div class="sh" style="margin-top:10pt">
+  <div class="sh-pill" style="background:#EEF5FF;color:#0D4B8A">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="16" height="11" rx="1"/><path d="M6 7V5a4 4 0 018 0v2"/></svg>
+    Priority Of Day — POD Rooms
   </div>
-  <div class="tw">
-    <table>
-      <thead><tr><th style="width:3%">#</th><th style="width:9%">Room</th><th style="width:20%">Guest Name</th><th style="width:11%">Check-In</th><th style="width:11%">Check-Out</th><th>Remarks</th></tr></thead>
-      <tbody>${podRows}</tbody>
-    </table>
-  </div>
+  <div class="sh-line"></div>
+  <div class="sh-badge">${state.pod.filter(r=>r.room||r.name).length} rooms</div>
+</div>
+<div class="tw">
+  <table>
+    <thead><tr><th style="width:3%">#</th><th style="width:9%">Room</th><th style="width:22%">Guest Name</th><th style="width:12%">Check-In</th><th style="width:12%">Check-Out</th><th>Remarks</th></tr></thead>
+    <tbody>${podRows}</tbody>
+  </table>
 </div>` : ''}
 
 ${notesHtml ? `
-<div class="sec">
-  <div class="sec-hd">
-    <div class="sec-icon" style="background:#0F5A3A"><svg viewBox="0 0 20 20" fill="none" stroke="#6EE7B7" stroke-width="1.5"><path d="M4 4h12v9l-4 4H4z"/><path d="M7 8h6M7 11h4"/></svg></div>
-    <div class="sec-title">Shift Notes</div>
-    <div class="sec-line"></div>
+<div class="sh" style="margin-top:10pt">
+  <div class="sh-pill" style="background:#ECFDF5;color:#065F46">
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h12v9l-4 4H4z"/><path d="M7 8h6M7 11h4"/></svg>
+    Shift Notes
   </div>
-  <div class="tw">
-    <table><thead><tr><th style="width:12%">Shift</th><th>Notes</th></tr></thead><tbody>${notesHtml}</tbody></table>
-  </div>
+  <div class="sh-line"></div>
+</div>
+<div class="tw">
+  <table><thead><tr><th style="width:11%">Shift</th><th>Notes</th></tr></thead><tbody>${notesHtml}</tbody></table>
 </div>` : ''}
 
-<div class="div"></div>
+<div class="divider"></div>
 
 <div class="sig-row">
   <div class="sig-box">
@@ -1674,14 +1660,15 @@ ${notesHtml ? `
 </div>
 
 <div class="footer">
-  <div class="f-brand">
+  <div class="f-left">
     <span class="f-stars">${'★'.repeat(hotel.stars)}</span>
-    <span><strong>${hotel.name}</strong> — Front Office Handover Report</span>
+    <strong>${hotel.name}</strong> — Front Office Handover Report
   </div>
   <span>${fmt(m.date)} &nbsp;·&nbsp; ${escapeHtml(m.from)} → ${escapeHtml(m.to)}</span>
   <span>Generated ${new Date().toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
 </div>
 
+</div><!-- /body -->
 </body></html>`;
 
   const win = window.open('', '_blank');
@@ -1794,7 +1781,8 @@ function initDate() {
 window.showTab          = showTab;
 window.autoSave         = autoSave;
 window.manualSave       = manualSave;
-window.exportPDF        = exportPDF;
+window.exportPDF              = exportPDF;
+window.toggleCompletedCollapse = toggleCompletedCollapse;
 window.onDateChange     = onDateChange;
 window.switchKpiShift   = switchKpiShift;
 window.addHandoverRow   = addHandoverRow;

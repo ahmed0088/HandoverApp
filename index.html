@@ -169,6 +169,43 @@
       </button>
     </div>
 
+    <!-- COMPLETED TASKS -->
+    <div class="card completed-section" id="section-completed" style="display:none">
+      <div class="card-head">
+        <div class="card-title">
+          <span class="card-icon">✅</span>Completed Tasks
+          <span class="card-badge completed-badge" id="completedCount">0 tasks</span>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-ghost" onclick="toggleCompletedCollapse()" id="completedToggleBtn">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" id="completedChevron"><path d="M5 8l5 5 5-5"/></svg>
+            Hide
+          </button>
+        </div>
+      </div>
+      <div id="completedBody-wrap">
+        <div class="info-banner completed-banner">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 13l3 3 7-7"/></svg>
+          These tasks are marked <strong>Done</strong> or <strong>Cancelled</strong>. Kept here for reference and <strong>excluded from the PDF export</strong>.
+        </div>
+        <div id="completedMobileList" class="mobile-list"></div>
+        <div class="table-wrap desktop-only">
+          <table class="data-table">
+            <thead><tr>
+              <th style="width:32px">#</th>
+              <th style="width:110px">Date</th>
+              <th style="width:140px">Heartist</th>
+              <th>Task / Note</th>
+              <th>Update / Action Taken</th>
+              <th style="width:130px">Status</th>
+              <th style="width:40px"></th>
+            </tr></thead>
+            <tbody id="completedBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- NO SHOWS -->
     <div class="card" id="section-noshow">
       <div class="card-head">
