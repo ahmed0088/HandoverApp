@@ -14,30 +14,48 @@ const FIREBASE_CONFIG = {
 // Database path prefix
 const DB_ROOT = "frontoffice";
 
-// Hotels — updated brand colors + logos
+// Hotels — inline SVG logos (no external dependencies, always renders)
 const HOTELS = [
   {
     id: "ibis",
     name: "Ibis Styles Dubai Deira",
     short: "Ibis Styles",
-    color: "#2E8B57",   // green
+    color: "#2E8B57",
     stars: 3,
-    logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Ibis_Styles_logo.svg/320px-Ibis_Styles_logo.svg.png"
+    // ibis Styles: lowercase italic "ibis" + bold "Styles" on green
+    logoBadge: `<svg viewBox="0 0 120 48" xmlns="http://www.w3.org/2000/svg" width="120" height="48">
+      <rect width="120" height="48" rx="6" fill="#2E8B57"/>
+      <text x="10" y="28" font-family="Georgia,serif" font-style="italic" font-size="18" font-weight="400" fill="#fff" letter-spacing="-0.5">ibis</text>
+      <text x="46" y="28" font-family="Arial,sans-serif" font-size="16" font-weight="700" fill="#fff" letter-spacing="0.5">Styles</text>
+      <text x="10" y="41" font-family="Arial,sans-serif" font-size="8" font-weight="400" fill="rgba(255,255,255,0.75)" letter-spacing="1">DUBAI DEIRA</text>
+    </svg>`
   },
   {
     id: "adagio",
     name: "Adagio Apartment Dubai",
     short: "Adagio",
-    color: "#C0392B",   // red
+    color: "#C0392B",
     stars: 4,
-    logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Adagio_logo.svg/320px-Adagio_logo.svg.png"
+    // Adagio: bold sans-serif wordmark on red with tagline
+    logoBadge: `<svg viewBox="0 0 120 48" xmlns="http://www.w3.org/2000/svg" width="120" height="48">
+      <rect width="120" height="48" rx="6" fill="#C0392B"/>
+      <text x="10" y="29" font-family="Arial,sans-serif" font-size="22" font-weight="700" fill="#fff" letter-spacing="-0.5">adagio</text>
+      <text x="10" y="41" font-family="Arial,sans-serif" font-size="8" font-weight="400" fill="rgba(255,255,255,0.75)" letter-spacing="1">APARTHOTEL · DUBAI</text>
+    </svg>`
   },
   {
     id: "mercure",
     name: "Mercure Dubai Deira",
     short: "Mercure",
-    color: "#6C3483",   // purple
-    stars: 3,           // corrected: Mercure Deira is 3-star
-    logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Mercure_logo.svg/320px-Mercure_logo.svg.png"
+    color: "#6C3483",
+    stars: 3,
+    // Mercure: distinctive M-square icon + wordmark on purple
+    logoBadge: `<svg viewBox="0 0 120 48" xmlns="http://www.w3.org/2000/svg" width="120" height="48">
+      <rect width="120" height="48" rx="6" fill="#6C3483"/>
+      <rect x="8" y="10" width="28" height="28" rx="3" fill="rgba(255,255,255,0.2)"/>
+      <text x="10" y="31" font-family="Georgia,serif" font-style="italic" font-size="22" font-weight="700" fill="#fff">M</text>
+      <text x="42" y="28" font-family="Arial,sans-serif" font-size="15" font-weight="700" fill="#fff" letter-spacing="0.3">Mercure</text>
+      <text x="42" y="40" font-family="Arial,sans-serif" font-size="8" font-weight="400" fill="rgba(255,255,255,0.75)" letter-spacing="1">DUBAI DEIRA</text>
+    </svg>`
   }
 ];

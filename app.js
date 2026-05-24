@@ -70,9 +70,7 @@ function buildHotelSelector() {
     <div class="hotel-card" onclick="selectHotel('${h.id}', true)">
       <div class="hotel-card-accent" style="background:${h.color}"></div>
       <div class="hotel-card-logo-wrap">
-        <img class="hotel-card-logo" src="${h.logo}" alt="${escapeHtml(h.short)} logo"
-          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="hotel-card-logo-fallback" style="display:none;color:${h.color}">${escapeHtml(h.short)}</div>
+        ${h.logoBadge}
       </div>
       <div class="hotel-card-info">
         <div class="hotel-card-name">${escapeHtml(h.name)}</div>
