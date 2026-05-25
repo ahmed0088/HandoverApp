@@ -564,12 +564,25 @@ function markDirty() {
 function onDateChange() {
   const d = document.getElementById('ho_date').value;
   if (!d) return;
+
+  // Determine if the chosen date is today or in the future
+  const chosenDate = d;
+  const todayStr = todayISO();
+  const isToday = (chosenDate === todayStr);
+  const isFuture = (chosenDate > todayStr);
+
   state.meta.date = d;
   document.getElementById('todayDate').textContent = fmtDate(d);
   if (currentRef && firebaseEnabled) currentRef.off();
   state = freshState();
   state.meta.date = d;
-  carryOverDone = false;   // allow carryover to re-run for the new date
+
+  // For today or future dates, tasks should carry over from the previous day.
+  // Reset both the in-memory guard AND the localStorage flag so carryover
+  // re-runs fresh for the newly selected date.
+  carryOverDone = false;
+  try { localStorage.removeItem(lsCarryKey()); } catch(e) {}
+
   if (firebaseEnabled) loadFromDB();
   else fallbackLS();
   renderAll();
@@ -1678,6 +1691,214 @@ ${notesHtml ? `
   win.onload = () => win.focus();
 }
 
+// ════════════════════════════════════════════════════════════
+// EXCEL EXPORT — matches FrontOffice_Handover_2026.xlsx style
+// Requires SheetJS CDN in index.html:
+//   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+// ════════════════════════════════════════════════════════════
+function exportExcel() {
+  collectAll();
+  if (typeof XLSX === 'undefined') {
+    showToast('Excel library not loaded. Check console.', true);
+    console.error('SheetJS (XLSX) not found. Add CDN script to index.html');
+    return;
+  }
+  const m = state.meta;
+  const hotel = currentHotel || { name: 'Hotel', color: '#1F5EBD', short: 'Hotel', stars: 3 };
+
+  const C_BLUE_HDR = '1F5EBD';
+  const C_GREEN    = '92D050';
+  const C_BLUE_COL = '0070C0';
+  const C_BDD7EE   = 'BDD7EE';
+  const C_RED      = 'C00000';
+  const C_GOLD     = 'FFD700';
+  const WHITE      = 'FFFFFF';
+  const BLACK      = '000000';
+
+  const wb = XLSX.utils.book_new();
+  const ws = {};
+
+  const border = { top:{style:'thin',color:{rgb:'D0D0D0'}},bottom:{style:'thin',color:{rgb:'D0D0D0'}},left:{style:'thin',color:{rgb:'D0D0D0'}},right:{style:'thin',color:{rgb:'D0D0D0'}} };
+
+  const H = (bg, fc, bold=true, sz=9, wrap=false, ha='center') => ({
+    font:{bold,color:{rgb:fc},sz,name:'Calibri'},
+    fill:{patternType:'solid',fgColor:{rgb:bg}},
+    alignment:{horizontal:ha,vertical:'center',wrapText:wrap},
+    border
+  });
+  const D = (bg, fc, bold=false, sz=9, wrap=true, ha='left') => ({
+    font:{bold,color:{rgb:fc},sz,name:'Calibri'},
+    fill:bg?{patternType:'solid',fgColor:{rgb:bg}}:{patternType:'none'},
+    alignment:{horizontal:ha,vertical:'top',wrapText:wrap},
+    border
+  });
+
+  const set = (addr, v, s) => { ws[addr] = {v, t: typeof v==='number'?'n':'s', s}; };
+
+  // Row 1 — Title
+  set('A1','Front Office', H(C_BLUE_HDR,WHITE,true,14));
+  set('E1', hotel.name,    H(C_BLUE_HDR,WHITE,true,11));
+  set('J1', 'Date:  '+(m.date?fmtDate(m.date):''), H(C_GOLD,BLACK,true,12));
+
+  // Row 2 — Handover / Agent
+  set('A2','Handover',               H(C_GREEN,WHITE,true,10));
+  set('J2','Name of Agent: '+(m.agent||''), H(C_GREEN,WHITE,true,10));
+
+  // Rows 3-4 — From/To shift
+  set('A3','Handover from', H(C_BLUE_COL,WHITE,true,9,'false','left'));
+  set('C3', m.from||'Morning Shift', D(null,BLACK,true,10,false,'left'));
+  set('A4','Handover to:',  H(C_BLUE_COL,WHITE,true,9,'false','left'));
+  set('C4', m.to||'Evening Shift',   D(null,BLACK,true,10,false,'left'));
+  set('J3', m.receiver ? 'Received by: '+m.receiver : '', D(null,BLACK,false,9,false,'left'));
+
+  // Row 5 — Column headers
+  set('A5','Date',     H(C_BLUE_COL,WHITE,true,9));
+  set('B5','Heartist', H(C_BLUE_COL,WHITE,true,9));
+  set('C5','Handover', H(C_BLUE_COL,WHITE,true,9));
+  set('J5','Update',   H(C_GREEN,WHITE,true,9));
+  set('K5','Status',   H(C_GREEN,WHITE,true,9));
+
+  // Rows 6-15 — Handover tasks (10 rows)
+  const tasks = state.handover.filter(r=>r.note||r.heartist).slice(0,10);
+  for (let i=0;i<10;i++) {
+    const row=i+6, r=tasks[i]||{};
+    set(`A${row}`, r.date?fmtDate(r.date):'',   D(null,BLACK,false,9,false,'center'));
+    set(`B${row}`, r.heartist||'',                D(null,BLACK,false,9,false,'left'));
+    set(`C${row}`, r.note||'',                    D(null,BLACK,false,9,true, 'left'));
+    set(`J${row}`, r.update||'',                  D(null,BLACK,false,9,true, 'left'));
+    if (r.status) {
+      const ss=statusStyle(r.status);
+      set(`K${row}`,r.status, H(ss.bg.replace('#',''),ss.color.replace('#',''),true,9,false,'center'));
+    } else {
+      set(`K${row}`,'', D(null,BLACK,false,9,false,'center'));
+    }
+  }
+
+  // Row 16 — KPI label
+  set('A16',"KPI's",          H(C_GREEN,BLACK,true,9));
+  set('J16','ALL MEMBERSHIP',  H(C_GREEN,BLACK,true,9));
+
+  // Row 17 — KPI headers
+  [['A17','SHIFT'],['B17','WALK IN'],['C17','EXTENSIONS'],['D17','BB UPSELLING'],
+   ['E17','ROOM UPSELLING'],['F17','SPARKLES'],['G17','PROFILES'],
+   ['H17','SHIFT'],['J17','ALL\nENROLLMENT'],['K17','WELCOME - DRINK REDEEMED']]
+  .forEach(([addr,lbl])=>set(addr,lbl,H(C_BDD7EE,BLACK,true,9,true,'center')));
+
+  // Rows 18-20 — KPI data
+  ['Morning','Evening','Night'].forEach((sh,i)=>{
+    const row=18+i, d=state.kpis[sh]||{};
+    set(`A${row}`,sh,   D(null,BLACK,false,10,false,'left'));
+    ['walkin','ext','bb','room','spark','prof'].forEach((f,fi)=>{
+      set(`${'BCDEFG'[fi]}${row}`, d[f]||0, D(null,BLACK,false,10,false,'center'));
+    });
+    set(`H${row}`,sh,         D(null,BLACK,false,10,false,'left'));
+    set(`J${row}`,d.enrollment||0, D(null,BLACK,false,10,false,'center'));
+    set(`K${row}`,d.welcome||0,    D(null,BLACK,false,10,false,'center'));
+  });
+
+  // Row 21 — POD header (light blue)
+  set('A21','#',           H(C_BDD7EE,BLACK,true,9));
+  set('B21','Room Number', H(C_BDD7EE,BLACK,true,9));
+  set('E21','Name',        H(C_BDD7EE,BLACK,true,9));
+  set('H21','Check-In',    H(C_BDD7EE,BLACK,true,9));
+  set('J21','Check-Out',   H(C_BDD7EE,BLACK,true,9));
+  set('K21','Remarks',     H(C_BDD7EE,BLACK,true,9));
+
+  const podData = state.pod.filter(r=>r.room||r.name).slice(0,3);
+  for(let i=0;i<3;i++){
+    const row=22+i, r=podData[i]||{};
+    set(`A${row}`,i+1, D(null,BLACK,false,9,false,'center'));
+    set(`B${row}`,r.room||'',  D(null,BLACK,false,9,true,'center'));
+    set(`E${row}`,r.name||'',  D(null,BLACK,false,9,true,'left'));
+    set(`H${row}`,r.checkin ?fmtDate(r.checkin) :'', D(null,BLACK,false,9,false,'center'));
+    set(`J${row}`,r.checkout?fmtDate(r.checkout):'', D(null,BLACK,false,9,false,'center'));
+    set(`K${row}`,r.remarks||'', D(null,BLACK,false,9,true,'left'));
+  }
+
+  // Row 25 — Incognito header (red)
+  set('A25','#',                    H(C_RED,WHITE,true,9));
+  set('B25','Room Number',          H(C_RED,WHITE,true,9));
+  set('E25','Name / Alias',         H(C_RED,WHITE,true,9));
+  set('H25','Check-In',             H(C_RED,WHITE,true,9));
+  set('J25','Check-Out',            H(C_RED,WHITE,true,9));
+  set('K25','Priority / Remarks',   H(C_RED,WHITE,true,9));
+
+  const icData = state.incognito.filter(r=>r.room||r.name).slice(0,3);
+  for(let i=0;i<3;i++){
+    const row=26+i, r=icData[i]||{};
+    set(`A${row}`,i+1, D(null,BLACK,false,9,false,'center'));
+    set(`B${row}`,r.room||'', D(null,BLACK,false,9,true,'center'));
+    set(`E${row}`,r.name||'', D(null,BLACK,false,9,true,'left'));
+    set(`H${row}`,r.checkin ?fmtDate(r.checkin) :'', D(null,BLACK,false,9,false,'center'));
+    set(`J${row}`,r.checkout?fmtDate(r.checkout):'', D(null,BLACK,false,9,false,'center'));
+    const ps=r.priority?priorityStyle(r.priority):null;
+    const remarks=(r.priority?r.priority:'')+(r.instructions?' — '+r.instructions:'');
+    if(ps){ set(`K${row}`,remarks, H(ps.bg.replace('#',''),ps.color.replace('#',''),true,9,true,'left')); }
+    else  { set(`K${row}`,remarks, D(null,BLACK,false,9,true,'left')); }
+  }
+
+  // Merges
+  ws['!merges'] = [
+    {s:{r:0,c:0},e:{r:0,c:3}},{s:{r:0,c:4},e:{r:0,c:8}},{s:{r:0,c:9},e:{r:0,c:11}},
+    {s:{r:1,c:0},e:{r:1,c:8}},{s:{r:1,c:9},e:{r:1,c:11}},
+    {s:{r:2,c:0},e:{r:2,c:1}},{s:{r:2,c:2},e:{r:2,c:8}},{s:{r:2,c:9},e:{r:2,c:11}},
+    {s:{r:3,c:0},e:{r:3,c:1}},{s:{r:3,c:2},e:{r:3,c:8}},{s:{r:3,c:9},e:{r:3,c:11}},
+    {s:{r:4,c:2},e:{r:4,c:8}},{s:{r:4,c:10},e:{r:4,c:11}},
+    ...[5,6,7,8,9,10,11,12,13,14].flatMap(r=>[{s:{r,c:2},e:{r,c:8}},{s:{r,c:10},e:{r,c:11}}]),
+    {s:{r:15,c:0},e:{r:15,c:8}},{s:{r:15,c:9},e:{r:15,c:11}},
+    {s:{r:16,c:7},e:{r:16,c:8}},{s:{r:16,c:10},e:{r:16,c:11}},
+    ...[17,18,19].flatMap(r=>[{s:{r,c:7},e:{r,c:8}},{s:{r,c:10},e:{r,c:11}}]),
+    {s:{r:20,c:0},e:{r:20,c:0}},{s:{r:20,c:1},e:{r:20,c:3}},{s:{r:20,c:4},e:{r:20,c:6}},{s:{r:20,c:7},e:{r:20,c:8}},{s:{r:20,c:10},e:{r:20,c:11}},
+    ...[21,22,23].flatMap(r=>[{s:{r,c:1},e:{r,c:3}},{s:{r,c:4},e:{r,c:6}},{s:{r,c:7},e:{r,c:8}},{s:{r,c:10},e:{r,c:11}}]),
+    {s:{r:24,c:0},e:{r:24,c:0}},{s:{r:24,c:1},e:{r:24,c:3}},{s:{r:24,c:4},e:{r:24,c:6}},{s:{r:24,c:7},e:{r:24,c:8}},{s:{r:24,c:10},e:{r:24,c:11}},
+    ...[25,26,27].flatMap(r=>[{s:{r,c:1},e:{r,c:3}},{s:{r,c:4},e:{r,c:6}},{s:{r,c:7},e:{r,c:8}},{s:{r,c:10},e:{r,c:11}}]),
+  ];
+
+  ws['!cols'] = [{wch:15},{wch:12},{wch:8},{wch:13},{wch:10},{wch:13},{wch:8},{wch:7},{wch:12},{wch:36},{wch:12},{wch:14}];
+  ws['!rows'] = [
+    {hpt:50},{hpt:18},{hpt:18},{hpt:18},{hpt:18},
+    {hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},
+    {hpt:20},{hpt:95},{hpt:16},{hpt:16},{hpt:16},
+    {hpt:28},{hpt:48},{hpt:48},{hpt:48},
+    {hpt:18},{hpt:48},{hpt:48},{hpt:48}
+  ];
+  ws['!ref'] = 'A1:L28';
+
+  // No-show sheet
+  const nsData = state.noshow.filter(r=>r.name||r.resv);
+  if (nsData.length) {
+    const nsWs = {};
+    const ns = (a,v,s) => { nsWs[a]={v,t:typeof v==='number'?'n':'s',s}; };
+    ns('A1','NO SHOW LOG',     H(C_RED,WHITE,true,12));
+    ns('B1', hotel.name,       H(C_RED,WHITE,true,10));
+    ns('F1', m.date?fmtDate(m.date):'', H(C_GOLD,BLACK,true,11));
+    [['A2','#'],['B2','Guest Name'],['C2','Resv./Room'],['D2','Arrival'],['E2','Nights'],['F2','Remarks'],['G2','Status']]
+      .forEach(([a,l])=>ns(a,l,H(C_BDD7EE,BLACK,true,9)));
+    nsData.forEach((r,i)=>{
+      const row=i+3, sc=noshowStatusStyle(r.status);
+      ns(`A${row}`,i+1, D(null,BLACK,false,9,false,'center'));
+      ns(`B${row}`,r.name||'',    D(null,BLACK,true,9,false,'left'));
+      ns(`C${row}`,r.resv||'',    D(null,BLACK,false,9,false,'center'));
+      ns(`D${row}`,r.arrival?fmtDate(r.arrival):'', D(null,BLACK,false,9,false,'center'));
+      ns(`E${row}`,parseInt(r.nights)||1, D(null,BLACK,false,9,false,'center'));
+      ns(`F${row}`,r.remarks||'', D(null,BLACK,false,9,true,'left'));
+      ns(`G${row}`,r.status||'',  H(sc.bg.replace('#',''),sc.color.replace('#',''),true,9,false,'center'));
+    });
+    nsWs['!ref']=`A1:G${nsData.length+2}`;
+    nsWs['!cols']=[{wch:5},{wch:22},{wch:14},{wch:12},{wch:7},{wch:35},{wch:14}];
+    nsWs['!rows']=[{hpt:30},{hpt:30},...nsData.map(()=>({hpt:36}))];
+    XLSX.utils.book_append_sheet(wb,nsWs,'No Shows');
+  }
+
+  XLSX.utils.book_append_sheet(wb,ws,'Front Office Handover');
+  // Move main sheet to front
+  wb.SheetNames = wb.SheetNames.filter(n=>n==='Front Office Handover').concat(wb.SheetNames.filter(n=>n!=='Front Office Handover'));
+
+  const dateStr=(m.date||todayISO()).replace(/-/g,'');
+  XLSX.writeFile(wb, `FrontOffice_Handover_${(hotel.short||hotel.name).replace(/\s+/g,'_')}_${dateStr}.xlsx`);
+  showToast('Excel exported ✓');
+}
+
 // ── Status / Priority helpers ─────────────────────────────────
 function taskStatuses() { return ['Pending','In Progress','Done','Urgent','Follow Up','Info','Cancelled']; }
 function noshowStatuses() { return ['No Show','Charged','Waived','Disputed','Refunded','Investigating']; }
@@ -1782,6 +2003,7 @@ window.showTab          = showTab;
 window.autoSave         = autoSave;
 window.manualSave       = manualSave;
 window.exportPDF              = exportPDF;
+window.exportExcel            = exportExcel;
 window.toggleCompletedCollapse = toggleCompletedCollapse;
 window.onDateChange     = onDateChange;
 window.switchKpiShift   = switchKpiShift;
