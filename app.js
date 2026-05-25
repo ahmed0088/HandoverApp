@@ -564,25 +564,12 @@ function markDirty() {
 function onDateChange() {
   const d = document.getElementById('ho_date').value;
   if (!d) return;
-
-  // Determine if the chosen date is today or in the future
-  const chosenDate = d;
-  const todayStr = todayISO();
-  const isToday = (chosenDate === todayStr);
-  const isFuture = (chosenDate > todayStr);
-
   state.meta.date = d;
   document.getElementById('todayDate').textContent = fmtDate(d);
   if (currentRef && firebaseEnabled) currentRef.off();
   state = freshState();
   state.meta.date = d;
-
-  // For today or future dates, tasks should carry over from the previous day.
-  // Reset both the in-memory guard AND the localStorage flag so carryover
-  // re-runs fresh for the newly selected date.
-  carryOverDone = false;
-  try { localStorage.removeItem(lsCarryKey()); } catch(e) {}
-
+  carryOverDone = false;   // allow carryover to re-run for the new date
   if (firebaseEnabled) loadFromDB();
   else fallbackLS();
   renderAll();
@@ -1692,210 +1679,149 @@ ${notesHtml ? `
 }
 
 // ════════════════════════════════════════════════════════════
-// EXCEL EXPORT — matches FrontOffice_Handover_2026.xlsx style
-// Requires SheetJS CDN in index.html:
-//   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+// EXCEL EXPORT  — uses a pre-styled openpyxl template embedded
+// as base64. SheetJS reads the template (preserving all styles/
+// fills/fonts/merges) then we overwrite only the VALUE cells.
 // ════════════════════════════════════════════════════════════
 function exportExcel() {
   collectAll();
   if (typeof XLSX === 'undefined') {
-    showToast('Excel library not loaded. Check console.', true);
-    console.error('SheetJS (XLSX) not found. Add CDN script to index.html');
+    showToast('SheetJS not loaded – check index.html CDN', true);
     return;
   }
+
+  // ── 1. Base64-encoded styled template (built with openpyxl) ──
+  const TEMPLATE_B64 = `UEsDBBQAAAAIAOGGuVxGx01IlQAAAM0AAAAQAAAAZG9jUHJvcHMvYXBwLnhtbE3PTQvCMAwG4L9SdreZih6kDkQ9ip68zy51hbYpbYT67+0EP255ecgboi6JIia2mEXxLuRtMzLHDUDWI/o+y8qhiqHke64x3YGMsRoPpB8eA8OibdeAhTEMOMzit7Dp1C5GZ3XPlkJ3sjpRJsPiWDQ6sScfq9wcChDneiU+ixNLOZcrBf+LU8sVU57mym/8ZAW/B7oXUEsDBBQAAAAIAOGGuVxq+9CV7wAAACsCAAARAAAAZG9jUHJvcHMvY29yZS54bWzNks9qwzAMh19l+J7ISUgOJs2lo6cOBits7GZstTWL/2BrJH37JVmbMrYH2NHSz58+gVoVhPIRn6MPGMlgehht75JQYcPOREEAJHVGK1M+JdzUPPpoJU3PeIIg1Yc8IZScN2CRpJYkYQZmYSWyrtVKqIiSfLzitVrx4TP2C0wrwB4tOkpQ5AWwbp4YLmPfwh0wwwijTd8F1Ctxqf6JXTrArskxmTU1DEM+VEtu2qGAt6f9y7JuZlwi6RROv5IRdAm4YbfJr9X28bBjXcnLJuN1VtaHohF1LXj1Prv+8LsLW6/N0fxj45tg18Kvu+i+AFBLAwQUAAAACADhhrlcmVycIxAGAACcJwAAEwAAAHhsL3RoZW1lL3RoZW1lMS54bWztWltz2jgUfu+v0Hhn9m0LxjaBtrQTc2l227SZhO1OH4URWI1seWSRhH+/RzYQy5YN7ZJNups8BCzp+85FR+foOHnz7i5i6IaIlPJ4YNkv29a7ty/e4FcyJBFBMBmnr/DACqVMXrVaaQDDOH3JExLD3IKLCEt4FMvWXOBbGi8j1uq0291WhGlsoRhHZGB9XixoQNBUUVpvXyC05R8z+BXLVI1lowETV0EmuYi08vlsxfza3j5lz+k6HTKBbjAbWCB/zm+n5E5aiOFUwsTAamc/VmvH0dJIgILJfZQFukn2o9MVCDINOzqdWM52fPbE7Z+Mytp0NG0a4OPxeDi2y9KLcBwE4FG7nsKd9Gy/pEEJtKNp0GTY9tqukaaqjVNP0/d93+ubaJwKjVtP02t33dOOicat0HgNvvFPh8Ouicar0HTraSYn/a5rpOkWaEJG4+t6EhW15UDTIABYcHbWzNIDll4p+nWUGtkdu91BXPBY7jmJEf7GxQTWadIZljRGcp2QBQ4AN8TRTFB8r0G2iuDCktJckNbPKbVQGgiayIH1R4Ihxdyv/fWXu8mkM3qdfTrOa5R/aasBp+27m8+T/HPo5J+nk9dNQs5wvCwJ8fsjW2GHJ247E3I6HGdCfM/29pGlJTLP7/kK6048Zx9WlrBdz8/knoxyI7vd9lh99k9HbiPXqcCzIteURiRFn8gtuuQROLVJDTITPwidhphqUBwCpAkxlqGG+LTGrBHgE323vgjI342I96tvmj1XoVhJ2oT4EEYa4pxz5nPRbPsHpUbR9lW83KOXWBUBlxjfNKo1LMXWeJXA8a2cPB0TEs2UCwZBhpckJhKpOX5NSBP+K6Xa/pzTQPCULyT6SpGPabMjp3QmzegzGsFGrxt1h2jSPHr+BfmcNQockRsdAmcbs0YhhGm78B6vJI6arcIRK0I+Yhk2GnK1FoG2camEYFoSxtF4TtK0EfxZrDWTPmDI7M2Rdc7WkQ4Rkl43Qj5izouQEb8ehjhKmu2icVgE/Z5ew0nB6ILLZv24fobVM2wsjvdH1BdK5A8mpz/pMjQHo5pZCb2EVmqfqoc0PqgeMgoF8bkePuV6eAo3lsa8UK6CewH/0do3wqv4gsA5fy59z6XvufQ9odK3NyN9Z8HTi1veRm5bxPuuMdrXNC4oY1dyzcjHVK+TKdg5n8Ds/Wg+nvHt+tkkhK+aWS0jFpBLgbNBJLj8i8rwKsQJ6GRbJQnLVNNlN4oSnkIbbulT9UqV1+WvuSi4PFvk6a+hdD4sz/k8X+e0zQszQ7dyS+q2lL61JjhK9LHMcE4eyww7ZzySHbZ3oB01+/ZdduQjpTBTl0O4GkK+A226ndw6OJ6YkbkK01KQb8P56cV4GuI52QS5fZhXbefY0dH758FRsKPvPJYdx4jyoiHuoYaYz8NDh3l7X5hnlcZQNBRtbKwkLEa3YLjX8SwU4GRgLaAHg69RAvJSVWAxW8YDK5CifEyMRehw55dcX+PRkuPbpmW1bq8pdxltIlI5wmmYE2eryt5lscFVHc9VW/Kwvmo9tBVOz/5ZrcifDBFOFgsSSGOUF6ZKovMZU77nK0nEVTi/RTO2EpcYvOPmx3FOU7gSdrYPAjK5uzmpemUxZ6by3y0MCSxbiFkS4k1d7dXnm5yueiJ2+pd3wWDy/XDJRw/lO+df9F1Drn723eP6bpM7SEycecURAXRFAiOVHAYWFzLkUO6SkAYTAc2UyUTwAoJkphyAmPoLvfIMuSkVzq0+OX9FLIOGTl7SJRIUirAMBSEXcuPv75Nqd4zX+iyBbYRUMmTVF8pDicE9M3JD2FQl867aJguF2+JUzbsaviZgS8N6bp0tJ//bXtQ9tBc9RvOjmeAes4dzm3q4wkWs/1jWHvky3zlw2zreA17mEyxDpH7BfYqKgBGrYr66r0/5JZw7tHvxgSCb/NbbpPbd4Ax81KtapWQrET9LB3wfkgZjjFv0NF+PFGKtprGtxtoxDHmAWPMMoWY434dFmhoz1YusOY0Kb0HVQOU/29QNaPYNNByRBV4xmbY2o+ROCjzc/u8NsMLEjuHti78BUEsDBBQAAAAIAOGGuVwz73ceIgkAAGI2AAAYAAAAeGwvd29ya3NoZWV0cy9zaGVldDEueG1snVtbc6rIFn4/v4LyPMzTjIKISCWpUiSRi5fSZM+8pYhpE2oreJAke09q/vusbsATdTW9ar/snUB/6/Ktj150N7n6yPLvh1fGCu3HbpserluvRbF32u3D+pXt4sMf2Z6lcGeT5bu4gF/zl/Zhn7P4WYB227bR6VjtXZykrZsrcW2R31xlb8U2Sdki1w5vu12c/xyxbfZx3dJb9YVl8vJa8Avtm6t9/MJWrHjYL3L4rX208pzsWHpIslTL2ea6NdSdyLA5QIz4lrCPw5efNZ7KU5Z957/4z9etToubTpn2c7XfJuCs19KKbB+xTeGy7RYMWi0tXhfJO1vAsOvWU1YU2Y7fhzCLuIBLmzz7m6XCJ9syGAvB7C8Gl0YqozzH/1UBt4558KC+/lxHfiuIBaKe4gNzs+2fyXPxet2yW9oz28Rv22KZfUxYRVaP21tn24P4V/sox+pmS1u/HSCaCgwR7JK0/D/+UZH8FdCVAIwKYJwBbMn4bjW+e+7AkADMCmCeAzoSQK8C9KgerApgEVPoV+P7Z+P7kvF2Nd4mjh9U4wdn47uWrGidumqd85yldT4W+rzSPRmirrQuSt0uNSUEOY6L+OYqzz60XIznwjOPbB+lCM/Wmo8QchcD4WqS8qd+VeRwNwGDxc1tnqWFNt9skjW7ahfgil9vryu0V6INCfrzczK/96LH2XDq/fMPgg9KfFeCh1yYo2mfn+Ph/YWBNuR4TNQoE9UteaKGcGVKXE3i9Dl7ZzkWZInsSZCzeMe0bKMNX1haiGiHd97svjHcrjrcrnBqKcLVYILbITG7JbwvLcztcj59XE3824tAy5xLvC3BL9mawYz5rD39FBkvPdfzv3nLxqRNddImLekic7CcTUXO93M845Moe+ooe8LPoEG0SHSjZtSExXmRHAosLwWyQbnNyIf9Mx5r2IxbQW99OzRwaFXTTgOHVjntdKTF4o/8YwcV56gCyyYtmHbuV/cSsKsEz+ZSz4ES/LAYyzyHFVg+W67uhwj4hNq+mtp+6UY2qVbU6ji1FVg2TVbU4mBXCRbU4uBACRbU4uCwT6L2AnxCra2m1iap1sCptUmqxcGuEiyoxcGBEiyoxcGhTaL2AnxC7UBN7YCk2i5O7YCkWhzsKsGCWhwcKMGCWhwcDkjUXoBPqOViVHHLxxB0a+Lk1miFcHG0q0YLenF0oEYLfnF0WKMVBF+gTwnWCQTrJPX2JATrJPniaFeNFgTj6ECNFgTj6LBGKwi+QJ8SbBAINkgKtiQEGyQF42hXjRYE4+hAjRYE4+iwRisIvkCfEtwlENwlKbgvIbhLUjCOdtVoQTCODtRoQTCODmu0guAL9CnBJoFgk6RgW0KwSVIwjnbVaEEwjg7UaEEwjg5rtILgC/QpwT0CwT2SggcSgnskBeNoV40WBOPoQI0WBOPosEYrCL5AnxJcLdl0u4Hgav0i2wgJF/5vBzQ/BXAYRdrUm468JSzPF01RVqsfu9cQZbUUkG0iiB0AVAEK4J/DKNT8GVp+BdT7696brfz5bIWgxyr0aKQ9LFZeFPmzO3QPToFfzufTRgu3Ss4Ww2UYeVj0dyrsYjm/9XHs5FdrFaiAoKj/eLPlPIqm3gyzECqr7UXufOppv2vjpT8LtaU39rypN25Sp63eOtKr1ZRsk2qa5WmSvqD6rKCyPbnPT3gAH6fzRy5UfyaZqKhGQLKohTHZwmiEGvDIBrhuURO3ZBNCuKiNO7INLmDUxOTXixnQ6yBULJn5yYooxdzcAQYE9VYLVtnGoPfOpOodUGL1vjWrl2pErl6qBal6qQYa1Es10aReqo0G9f5yMQN6HZrUS1YEQb1Gh3AAVO4GGLI38BkHYNqtgIpIZ36jdslGpNolW5Bpl2xArl2yiQbtkm3ItfurpQzoVWhQLl0PFOVW20tGwxmtUR2zylZg/0VVqwAts2ynzd52T+jRkaeC82NPtDQKnPvK1t9/91O0OiTs/A0rbajMl+3i/HvTsZVRb0SZDaUoN2SMcrXFP5p5v9Gv2u8nzFdj5CvRxXwsHjLJSZFnKDeNuAV+rC6xMKljkK8puQXXn8lOuogG5g/S4y5aEksPYeG0LF1CWcptHKP3pSzGeVmqMbJX/i9lwU+ZPEO51XQsC25hUscgP6SuyyI5JSMa4GWRHJXRkuBlaT4uM0xCWczLp6V7XhaT/LTgJ1SeodygOpYFtzCpY1A/LZITNqIBXhbJMRstCV6W5qM2o6feyTHKLSND1sDwfqIAqfqJAi4+o2lrw20SY5tIExW+sa+QsLK+ogAv8iTLk+InBE9oMRbhobEILcZSPTS+29xhlF8ygIHGBmOpFA8GmvoLCd/UXioDsvWLMLBY+qru0idUpE/oLn1Vd6krImsuyg8g6orIektf1RqqishaCwnf1Fn6xIooGotNqIhNaCw29RmR9RXldxN1RWRtxSY+I7KuQsI3NRWbWBFJT2l/+aR0x/IX8Y30QVtnbynY6/daXy6XH3kDac5d+ZX32R2YSJ3I6CF3YDnn+EYHuQPvbM7Y6KLWTLBmIndc2/FR/zr41zH/4cCJBth1AGDjA3CNeu47fh+N1YJYLfQO/yZeRzO3IXMsD+iEwBaahw7WdMza0AAIFrHedXwd4zfQIWYdj7kDMWPVcsEYZgvWhOAeiwsmPVALxtkQ/E9Q/x4Yw21ZYAtDuJbjo9dBET6uCMOAHDHGgq4TYTkOu84Iu+6CC8wDvPZCfTEVTXSQkY5xAu9QkCFmbag7Y4wTVzfBFuYl4AmiGoIbOnYHFqXgHcXYToQp1QXnmG94e4HccW31ISws94k+gEywp9TVYfbQMT16oLs7VHewPAZFornAjBPhMw5wGaFcwqsx5IPPbDAZSZ5iqDKaaQj1j9D6D01nhPmHBRDkiVaZTwiYD3CBeXCBZIzjEfA1RvmCNTH4xp96KD8aVQgVi9CKTXTgS8e7h13/9dBF/aGWqGJD0EyEagbe1iAfVGeQj4/mMwI1jVE1hTBVomqG2TVCZ1dX55MYagsYiFAG4I0bIhN+2v/vxeVfX03j/CVJD9qWbaAvd/6Azqzl5TtT+UuR7fnrk1b+1ZP48ZXFzyznA+D+JsuK+hfu4PhnZTf/AlBLAwQUAAAACADhhrlc+Kz7qzAEAAB1JgAADQAAAHhsL3N0eWxlcy54bWzdWuuO6jYQfpUoD9CQBAKpAAlCkCq11ZHO/ujfQByw5FyamC2cp68nDiTsZvZwcSE0aIXt8XzzeTweG2fHBT8w8n1LCNf2MUuKib7lPPvVMIr1lsRB8UuakURIojSPAy6q+cYospwEYQFKMTOsXs8x4oAm+nSc7OJlzAttne4SPtF7ujEdR2lSt5iOLltE3yAm2nvAJroXMLrKadk5iCk7yGYLGtYpS3ONCy5EaENL8UOKTVkDmhVOTJM0h0ZDWvjCzqrCqE3km5Ug3FuWz5kdRz2kfSekfM4gLfUsTfWQPeWQrnpXXkjyJzD3EnOtfq/n/7dDVc9RkfPuDhTTt2ejmVLIvmcu3IFSSNc15+Ycm5HyqxDIlLE6g9q6bJmOs4BzkidLUSmVysZPIq0qvx0ykUI3eXAwrYF+sUKRMhqCyY135t/lwJ8vSpiG6p2gy+ViKONAIeiwN1v0h4pBreVwMHdUD9+Cj2pQf2l7qoc/XyyGvq8YdDH3Z0vVoP7Cd5WDeqd8pXSifMvHZ7/8EslgleYhyU/pwNKPTdMxIxEX6jndbOGbpxnknpTzNBaFkAabNAnKVHHUaGpq5VFwovNteZQ7y1Oz8im5QdfKxoUaZd+SzoUKoueR94UasnNjYFVB+GtNGPsOIH9FdQ4VUPtIk6fV30I4qGqQa49F4emqKGFkBQw10SR2A9bu3YSrZfQ95fOdGEJS1v/epZx8y0lE92V9H50IYOhmjW410UV7kGXsMGN0k8REDv5ig9NxcNTTtmlOfwhrsEmtRQPJde2d5JyuGy3gon2E07Reg6Zd07Q7TLNf0+x3mObgoTQhP91A0qlJDjpLcojkkE6RHL0CycdO981Lp+FL54k0tX/yIHsje179hukQ54/zL84O19F1a7rD14iEB6wq5ZHwhExwdSQ4r7Gdmo2T5OhVQsE0H7rMbtwVTKsbq+ynPBsHVLe73mycT83uHgW6sp6u4fnMw0C39v/PNK/O+88mfMP8dzk5Pfukcs/8d9mvjeMJ7Kad5Wk2fu+bD7jlufjcZ1TXdY07wbMbwVOrBi9xJvqf8Mqb1QS01Y4yTpOqtqVhSJLqXq6+GBTwPFgxco4v+ockCnaMv52EE70u/0FCuovdU69v4JSqV13+HW5S5fvo8iZU2KJJSPYk9Kpqvll57W/WPkrqN6mfJZiOlLVLQIbZwRhgOlILs/N/Gs8IHY+UYdxGrZIRqjNCdaRWm8QrP5iddh1XPO0jdV3bdhzMo57XysDD/OY48NeOhnEDDcwOWLrO1/hs4xHydRxgc/pVhGAjxSMRGynua5C0+w00XLd9tjE7oIHNAhY7YL/dDsRUu45tw6xi3LAVjEtcF5NALLbHqOMg3nHg0z4/2Cqxbddtl4CsnYFtYxJYjbgEYwAcMIkt/6fpw35kHPcpo/5Hs+m/UEsDBBQAAAAIAOGGuVyXirscwAAAABMCAAALAAAAX3JlbHMvLnJlbHOdkrluwzAMQH/F0J4wB9AhiDNl8RYE+QFWog/YEgWKRZ2/r9qlcZALGXk9PBLcHmlA7TiptoupGP0QUmla1bgBSLYlj2nOkUKu1CweNYfSQETbY0OwWiw+QC4ZZre9ZBanc6RXiFzXnaU92y9PQW+ArzpMcUJpSEszDvDN0n8y9/MMNUXlSiOVWxp40+X+duBJ0aEiWBaaRcnToh2lfx3H9pDT6a9jIrR6W+j5cWhUCo7cYyWMcWK0/jWCyQ/sfgBQSwMEFAAAAAgA4Ya5XPoseYA8AQAAMgIAAA8AAAB4bC93b3JrYm9vay54bWyNUUFuwjAQ/ErkBzQBtUhFhEsRBakqqFTcnXhDVtjeaO1Ay+u7SRQVqZee7JldjWfGiyvxuSA6J1/O+pCrOsZmnqahrMHp8EANeJlUxE5HgXxKQ8OgTagBorPpNMtmqdPo1XIxau05vQcUoYxIXsiOOCJcw++8g8kFAxZoMX7nqr9bUIlDjw5vYHKVqSTUdN0Q44181PZQMlmbq8kwOAJHLP/Qh87kpy5Cz0RdfGgxkqtZJoIVcoj9Rq+vxeMFZHlAbaQ12gi80hFemdoG/amTkRTpXYy+h/EcSpzzf2qkqsISVlS2DnwcemSwnUEfamyCSrx2kKs1S+Jk168nG+0NXYC7fPLg1gxZo5i8a47nKAPemsHu6NFAhR7Mu8gG4aWvcs9Jd/Q608enybP00lr7ItzOv5E2Y+Txu5Y/UEsDBBQAAAAIAOGGuVwkHpuirQAAAPgBAAAaAAAAeGwvX3JlbHMvd29ya2Jvb2sueG1sLnJlbHO1kT0OgzAMha8S5QA1UKlDBUxdWCsuEAXzIxISxa4Kty+FAZA6dGGyni1/78lOn2gUd26gtvMkRmsGymTL7O8ApFu0ii7O4zBPahes4lmGBrzSvWoQkii6QdgzZJ7umaKcPP5DdHXdaXw4/bI48A8wvF3oqUVkKUoVGuRMwmi2NsFS4stMlqKoMhmKKpZwWiDiySBtaVZ9sE9OtOd5Fzf3Ra7N4wmu3wxweHT+AVBLAwQUAAAACADhhrlcZZB5khkBAADPAwAAEwAAAFtDb250ZW50X1R5cGVzXS54bWytk01OwzAQha8SZVslLixYoKYbYAtdcAFjTxqr/pNnWtLbM07aSqASFYVNrHjevM+el6zejxGw6J312JQdUXwUAlUHTmIdIniutCE5SfyatiJKtZNbEPfL5YNQwRN4qih7lOvVM7Ryb6l46XkbTfBNmcBiWTyNwsxqShmjNUoS18XB6x+U6kSouXPQYGciLlhQiquEXPkdcOp7O0BKRkOxkYlepWOV6K1AOlrAetriyhlD2xoFOqi945YaYwKpsQMgZ+vRdDFNJp4wjM+72fzBZgrIyk0KETmxBH/HnSPJ3VVkI0hkpq94IbL17PtBTluDvpHN4/0MaTfkgWJY5s/4e8YX/xvO8RHC7r8/sbzWThp/5ovhP15/AVBLAQIUAxQAAAAIAOGGuVxGx01IlQAAAM0AAAAQAAAAAAAAAAAAAACAAQAAAABkb2NQcm9wcy9hcHAueG1sUEsBAhQDFAAAAAgA4Ya5XGr70JXvAAAAKwIAABEAAAAAAAAAAAAAAIABwwAAAGRvY1Byb3BzL2NvcmUueG1sUEsBAhQDFAAAAAgA4Ya5XJlcnCMQBgAAnCcAABMAAAAAAAAAAAAAAIAB4QEAAHhsL3RoZW1lL3RoZW1lMS54bWxQSwECFAMUAAAACADhhrlcM+93HiIJAABiNgAAGAAAAAAAAAAAAAAAgIEiCAAAeGwvd29ya3NoZWV0cy9zaGVldDEueG1sUEsBAhQDFAAAAAgA4Ya5XPis+6swBAAAdSYAAA0AAAAAAAAAAAAAAIABehEAAHhsL3N0eWxlcy54bWxQSwECFAMUAAAACADhhrlcl4q7HMAAAAATAgAACwAAAAAAAAAAAAAAgAHVFQAAX3JlbHMvLnJlbHNQSwECFAMUAAAACADhhrlc+ix5gDwBAAAyAgAADwAAAAAAAAAAAAAAgAG+FgAAeGwvd29ya2Jvb2sueG1sUEsBAhQDFAAAAAgA4Ya5XCQem6KtAAAA+AEAABoAAAAAAAAAAAAAAIABJxgAAHhsL19yZWxzL3dvcmtib29rLnhtbC5yZWxzUEsBAhQDFAAAAAgA4Ya5XGWQeZIZAQAAzwMAABMAAAAAAAAAAAAAAIABDBkAAFtDb250ZW50X1R5cGVzXS54bWxQSwUGAAAAAAkACQA+AgAAVhoAAAAA`;
+
+  // ── 2. Parse template (keeps all styles) ──────────────────────
+  const binary = atob(TEMPLATE_B64);
+  const bytes  = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const wb = XLSX.read(bytes, { type: 'array', cellStyles: true });
+  const ws = wb.Sheets['Front Office Handover'];
+
   const m = state.meta;
-  const hotel = currentHotel || { name: 'Hotel', color: '#1F5EBD', short: 'Hotel', stars: 3 };
+  const hotel = currentHotel || { name: 'Hotel', short: 'Hotel', color: '#1F5EBD', stars: 3 };
 
-  const C_BLUE_HDR = '1F5EBD';
-  const C_GREEN    = '92D050';
-  const C_BLUE_COL = '0070C0';
-  const C_BDD7EE   = 'BDD7EE';
-  const C_RED      = 'C00000';
-  const C_GOLD     = 'FFD700';
-  const WHITE      = 'FFFFFF';
-  const BLACK      = '000000';
+  // ── 3. Helper: write value into existing styled cell ──────────
+  const put = (addr, val) => {
+    if (!ws[addr]) ws[addr] = {};
+    ws[addr].v = val;
+    ws[addr].t = (typeof val === 'number') ? 'n' : 's';
+  };
 
-  const wb = XLSX.utils.book_new();
-  const ws = {};
+  // ── 4. Fill in the placeholder cells ─────────────────────────
 
-  const border = { top:{style:'thin',color:{rgb:'D0D0D0'}},bottom:{style:'thin',color:{rgb:'D0D0D0'}},left:{style:'thin',color:{rgb:'D0D0D0'}},right:{style:'thin',color:{rgb:'D0D0D0'}} };
+  // Header row 1
+  put('A1', 'Front Office');
+  put('E1', hotel.name);
+  put('J1', 'Date:  ' + (m.date ? fmtDate(m.date) : ''));
 
-  const H = (bg, fc, bold=true, sz=9, wrap=false, ha='center') => ({
-    font:{bold,color:{rgb:fc},sz,name:'Calibri'},
-    fill:{patternType:'solid',fgColor:{rgb:bg}},
-    alignment:{horizontal:ha,vertical:'center',wrapText:wrap},
-    border
-  });
-  const D = (bg, fc, bold=false, sz=9, wrap=true, ha='left') => ({
-    font:{bold,color:{rgb:fc},sz,name:'Calibri'},
-    fill:bg?{patternType:'solid',fgColor:{rgb:bg}}:{patternType:'none'},
-    alignment:{horizontal:ha,vertical:'top',wrapText:wrap},
-    border
-  });
+  // Row 2
+  put('A2', 'Handover');
+  put('J2', 'Name of Agent:  ' + (m.agent || ''));
 
-  const set = (addr, v, s) => { ws[addr] = {v, t: typeof v==='number'?'n':'s', s}; };
+  // Rows 3-4
+  put('C3', m.from || 'Morning Shift');
+  put('J3', m.receiver ? 'Received by:  ' + m.receiver : '');
+  put('C4', m.to || 'Evening Shift');
 
-  // Row 1 — Title
-  set('A1','Front Office', H(C_BLUE_HDR,WHITE,true,14));
-  set('E1', hotel.name,    H(C_BLUE_HDR,WHITE,true,11));
-  set('J1', 'Date:  '+(m.date?fmtDate(m.date):''), H(C_GOLD,BLACK,true,12));
+  // ── 5. Handover tasks (rows 6-15) ────────────────────────────
+  const tasks = state.handover.filter(r => r.note || r.heartist).slice(0, 10);
+  // Status → background color mapping for status cells
+  const statusBgMap = {
+    'Pending':     { bg: 'FEF3C7', fc: '92400E' },
+    'In Progress': { bg: 'DBEAFE', fc: '1E3A8A' },
+    'Done':        { bg: 'D1FAE5', fc: '065F46' },
+    'Urgent':      { bg: 'FEE2E2', fc: '991B1B' },
+    'Follow Up':   { bg: 'EDE9FE', fc: '4C1D95' },
+    'Info':        { bg: 'F0F9FF', fc: '075985' },
+    'Cancelled':   { bg: 'F3F4F6', fc: '4B5563' },
+  };
 
-  // Row 2 — Handover / Agent
-  set('A2','Handover',               H(C_GREEN,WHITE,true,10));
-  set('J2','Name of Agent: '+(m.agent||''), H(C_GREEN,WHITE,true,10));
+  for (let i = 0; i < 10; i++) {
+    const row = i + 6;
+    const r   = tasks[i] || {};
+    put(`A${row}`, r.date    ? fmtDate(r.date) : '');
+    put(`B${row}`, r.heartist || '');
+    put(`C${row}`, r.note    ? (r.carriedFrom ? `↩ ${r.carriedFrom}  ${r.note}` : r.note) : '');
+    put(`J${row}`, r.update  || '');
 
-  // Rows 3-4 — From/To shift
-  set('A3','Handover from', H(C_BLUE_COL,WHITE,true,9,'false','left'));
-  set('C3', m.from||'Morning Shift', D(null,BLACK,true,10,false,'left'));
-  set('A4','Handover to:',  H(C_BLUE_COL,WHITE,true,9,'false','left'));
-  set('C4', m.to||'Evening Shift',   D(null,BLACK,true,10,false,'left'));
-  set('J3', m.receiver ? 'Received by: '+m.receiver : '', D(null,BLACK,false,9,false,'left'));
-
-  // Row 5 — Column headers
-  set('A5','Date',     H(C_BLUE_COL,WHITE,true,9));
-  set('B5','Heartist', H(C_BLUE_COL,WHITE,true,9));
-  set('C5','Handover', H(C_BLUE_COL,WHITE,true,9));
-  set('J5','Update',   H(C_GREEN,WHITE,true,9));
-  set('K5','Status',   H(C_GREEN,WHITE,true,9));
-
-  // Rows 6-15 — Handover tasks (10 rows)
-  const tasks = state.handover.filter(r=>r.note||r.heartist).slice(0,10);
-  for (let i=0;i<10;i++) {
-    const row=i+6, r=tasks[i]||{};
-    set(`A${row}`, r.date?fmtDate(r.date):'',   D(null,BLACK,false,9,false,'center'));
-    set(`B${row}`, r.heartist||'',                D(null,BLACK,false,9,false,'left'));
-    set(`C${row}`, r.note||'',                    D(null,BLACK,false,9,true, 'left'));
-    set(`J${row}`, r.update||'',                  D(null,BLACK,false,9,true, 'left'));
-    if (r.status) {
-      const ss=statusStyle(r.status);
-      set(`K${row}`,r.status, H(ss.bg.replace('#',''),ss.color.replace('#',''),true,9,false,'center'));
-    } else {
-      set(`K${row}`,'', D(null,BLACK,false,9,false,'center'));
+    const sc = statusBgMap[r.status] || statusBgMap['Pending'];
+    if (!ws[`K${row}`]) ws[`K${row}`] = {};
+    ws[`K${row}`].v = r.status || '';
+    ws[`K${row}`].t = 's';
+    // Overwrite the fill so the status color shows
+    if (ws[`K${row}`].s) {
+      ws[`K${row}`].s.fgColor = { rgb: sc.bg };
+      ws[`K${row}`].s.patternType = 'solid';
     }
   }
 
-  // Row 16 — KPI label
-  set('A16',"KPI's",          H(C_GREEN,BLACK,true,9));
-  set('J16','ALL MEMBERSHIP',  H(C_GREEN,BLACK,true,9));
+  // ── 6. KPI rows (18-20) ──────────────────────────────────────
+  const shifts = ['Morning', 'Evening', 'Night'];
+  const kpiColMap = { walkin:'B', ext:'C', bb:'D', room:'E', spark:'F', prof:'G' };
 
-  // Row 17 — KPI headers
-  [['A17','SHIFT'],['B17','WALK IN'],['C17','EXTENSIONS'],['D17','BB UPSELLING'],
-   ['E17','ROOM UPSELLING'],['F17','SPARKLES'],['G17','PROFILES'],
-   ['H17','SHIFT'],['J17','ALL\nENROLLMENT'],['K17','WELCOME - DRINK REDEEMED']]
-  .forEach(([addr,lbl])=>set(addr,lbl,H(C_BDD7EE,BLACK,true,9,true,'center')));
-
-  // Rows 18-20 — KPI data
-  ['Morning','Evening','Night'].forEach((sh,i)=>{
-    const row=18+i, d=state.kpis[sh]||{};
-    set(`A${row}`,sh,   D(null,BLACK,false,10,false,'left'));
-    ['walkin','ext','bb','room','spark','prof'].forEach((f,fi)=>{
-      set(`${'BCDEFG'[fi]}${row}`, d[f]||0, D(null,BLACK,false,10,false,'center'));
+  shifts.forEach((sh, si) => {
+    const row = 18 + si;
+    const d   = state.kpis[sh] || {};
+    put(`A${row}`, sh);
+    Object.entries(kpiColMap).forEach(([field, col]) => {
+      put(`${col}${row}`, d[field] || 0);
     });
-    set(`H${row}`,sh,         D(null,BLACK,false,10,false,'left'));
-    set(`J${row}`,d.enrollment||0, D(null,BLACK,false,10,false,'center'));
-    set(`K${row}`,d.welcome||0,    D(null,BLACK,false,10,false,'center'));
+    put(`H${row}`, sh);
+    put(`J${row}`, d.enrollment || 0);
+    put(`K${row}`, d.welcome    || 0);
   });
 
-  // Row 21 — POD header (light blue)
-  set('A21','#',           H(C_BDD7EE,BLACK,true,9));
-  set('B21','Room Number', H(C_BDD7EE,BLACK,true,9));
-  set('E21','Name',        H(C_BDD7EE,BLACK,true,9));
-  set('H21','Check-In',    H(C_BDD7EE,BLACK,true,9));
-  set('J21','Check-Out',   H(C_BDD7EE,BLACK,true,9));
-  set('K21','Remarks',     H(C_BDD7EE,BLACK,true,9));
-
-  const podData = state.pod.filter(r=>r.room||r.name).slice(0,3);
-  for(let i=0;i<3;i++){
-    const row=22+i, r=podData[i]||{};
-    set(`A${row}`,i+1, D(null,BLACK,false,9,false,'center'));
-    set(`B${row}`,r.room||'',  D(null,BLACK,false,9,true,'center'));
-    set(`E${row}`,r.name||'',  D(null,BLACK,false,9,true,'left'));
-    set(`H${row}`,r.checkin ?fmtDate(r.checkin) :'', D(null,BLACK,false,9,false,'center'));
-    set(`J${row}`,r.checkout?fmtDate(r.checkout):'', D(null,BLACK,false,9,false,'center'));
-    set(`K${row}`,r.remarks||'', D(null,BLACK,false,9,true,'left'));
+  // ── 7. POD rows (22-24) ──────────────────────────────────────
+  const podData = state.pod.filter(r => r.room || r.name).slice(0, 3);
+  for (let i = 0; i < 3; i++) {
+    const row = 22 + i, r = podData[i] || {};
+    put(`A${row}`, i + 1);
+    put(`B${row}`, r.room    || '');
+    put(`E${row}`, r.name    || '');
+    put(`H${row}`, r.checkin  ? fmtDate(r.checkin)  : '');
+    put(`J${row}`, r.checkout ? fmtDate(r.checkout) : '');
+    put(`K${row}`, r.remarks  || '');
   }
 
-  // Row 25 — Incognito header (red)
-  set('A25','#',                    H(C_RED,WHITE,true,9));
-  set('B25','Room Number',          H(C_RED,WHITE,true,9));
-  set('E25','Name / Alias',         H(C_RED,WHITE,true,9));
-  set('H25','Check-In',             H(C_RED,WHITE,true,9));
-  set('J25','Check-Out',            H(C_RED,WHITE,true,9));
-  set('K25','Priority / Remarks',   H(C_RED,WHITE,true,9));
-
-  const icData = state.incognito.filter(r=>r.room||r.name).slice(0,3);
-  for(let i=0;i<3;i++){
-    const row=26+i, r=icData[i]||{};
-    set(`A${row}`,i+1, D(null,BLACK,false,9,false,'center'));
-    set(`B${row}`,r.room||'', D(null,BLACK,false,9,true,'center'));
-    set(`E${row}`,r.name||'', D(null,BLACK,false,9,true,'left'));
-    set(`H${row}`,r.checkin ?fmtDate(r.checkin) :'', D(null,BLACK,false,9,false,'center'));
-    set(`J${row}`,r.checkout?fmtDate(r.checkout):'', D(null,BLACK,false,9,false,'center'));
-    const ps=r.priority?priorityStyle(r.priority):null;
-    const remarks=(r.priority?r.priority:'')+(r.instructions?' — '+r.instructions:'');
-    if(ps){ set(`K${row}`,remarks, H(ps.bg.replace('#',''),ps.color.replace('#',''),true,9,true,'left')); }
-    else  { set(`K${row}`,remarks, D(null,BLACK,false,9,true,'left')); }
+  // ── 8. Incognito rows (26-28) ─────────────────────────────────
+  const icData = state.incognito.filter(r => r.room || r.name).slice(0, 3);
+  for (let i = 0; i < 3; i++) {
+    const row = 26 + i, r = icData[i] || {};
+    put(`A${row}`, i + 1);
+    put(`B${row}`, r.room    || '');
+    put(`E${row}`, r.name    || '');
+    put(`H${row}`, r.checkin  ? fmtDate(r.checkin)  : '');
+    put(`J${row}`, r.checkout ? fmtDate(r.checkout) : '');
+    const remark = [r.priority, r.instructions].filter(Boolean).join(' — ');
+    put(`K${row}`, remark);
   }
 
-  // Merges
-  ws['!merges'] = [
-    {s:{r:0,c:0},e:{r:0,c:3}},{s:{r:0,c:4},e:{r:0,c:8}},{s:{r:0,c:9},e:{r:0,c:11}},
-    {s:{r:1,c:0},e:{r:1,c:8}},{s:{r:1,c:9},e:{r:1,c:11}},
-    {s:{r:2,c:0},e:{r:2,c:1}},{s:{r:2,c:2},e:{r:2,c:8}},{s:{r:2,c:9},e:{r:2,c:11}},
-    {s:{r:3,c:0},e:{r:3,c:1}},{s:{r:3,c:2},e:{r:3,c:8}},{s:{r:3,c:9},e:{r:3,c:11}},
-    {s:{r:4,c:2},e:{r:4,c:8}},{s:{r:4,c:10},e:{r:4,c:11}},
-    ...[5,6,7,8,9,10,11,12,13,14].flatMap(r=>[{s:{r,c:2},e:{r,c:8}},{s:{r,c:10},e:{r,c:11}}]),
-    {s:{r:15,c:0},e:{r:15,c:8}},{s:{r:15,c:9},e:{r:15,c:11}},
-    {s:{r:16,c:7},e:{r:16,c:8}},{s:{r:16,c:10},e:{r:16,c:11}},
-    ...[17,18,19].flatMap(r=>[{s:{r,c:7},e:{r,c:8}},{s:{r,c:10},e:{r,c:11}}]),
-    {s:{r:20,c:0},e:{r:20,c:0}},{s:{r:20,c:1},e:{r:20,c:3}},{s:{r:20,c:4},e:{r:20,c:6}},{s:{r:20,c:7},e:{r:20,c:8}},{s:{r:20,c:10},e:{r:20,c:11}},
-    ...[21,22,23].flatMap(r=>[{s:{r,c:1},e:{r,c:3}},{s:{r,c:4},e:{r,c:6}},{s:{r,c:7},e:{r,c:8}},{s:{r,c:10},e:{r,c:11}}]),
-    {s:{r:24,c:0},e:{r:24,c:0}},{s:{r:24,c:1},e:{r:24,c:3}},{s:{r:24,c:4},e:{r:24,c:6}},{s:{r:24,c:7},e:{r:24,c:8}},{s:{r:24,c:10},e:{r:24,c:11}},
-    ...[25,26,27].flatMap(r=>[{s:{r,c:1},e:{r,c:3}},{s:{r,c:4},e:{r,c:6}},{s:{r,c:7},e:{r,c:8}},{s:{r,c:10},e:{r,c:11}}]),
-  ];
-
-  ws['!cols'] = [{wch:15},{wch:12},{wch:8},{wch:13},{wch:10},{wch:13},{wch:8},{wch:7},{wch:12},{wch:36},{wch:12},{wch:14}];
-  ws['!rows'] = [
-    {hpt:50},{hpt:18},{hpt:18},{hpt:18},{hpt:18},
-    {hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},{hpt:46},
-    {hpt:20},{hpt:95},{hpt:16},{hpt:16},{hpt:16},
-    {hpt:28},{hpt:48},{hpt:48},{hpt:48},
-    {hpt:18},{hpt:48},{hpt:48},{hpt:48}
-  ];
-  ws['!ref'] = 'A1:L28';
-
-  // No-show sheet
-  const nsData = state.noshow.filter(r=>r.name||r.resv);
+  // ── 9. No-show extra sheet ────────────────────────────────────
+  const nsData = state.noshow.filter(r => r.name || r.resv);
   if (nsData.length) {
-    const nsWs = {};
-    const ns = (a,v,s) => { nsWs[a]={v,t:typeof v==='number'?'n':'s',s}; };
-    ns('A1','NO SHOW LOG',     H(C_RED,WHITE,true,12));
-    ns('B1', hotel.name,       H(C_RED,WHITE,true,10));
-    ns('F1', m.date?fmtDate(m.date):'', H(C_GOLD,BLACK,true,11));
-    [['A2','#'],['B2','Guest Name'],['C2','Resv./Room'],['D2','Arrival'],['E2','Nights'],['F2','Remarks'],['G2','Status']]
-      .forEach(([a,l])=>ns(a,l,H(C_BDD7EE,BLACK,true,9)));
-    nsData.forEach((r,i)=>{
-      const row=i+3, sc=noshowStatusStyle(r.status);
-      ns(`A${row}`,i+1, D(null,BLACK,false,9,false,'center'));
-      ns(`B${row}`,r.name||'',    D(null,BLACK,true,9,false,'left'));
-      ns(`C${row}`,r.resv||'',    D(null,BLACK,false,9,false,'center'));
-      ns(`D${row}`,r.arrival?fmtDate(r.arrival):'', D(null,BLACK,false,9,false,'center'));
-      ns(`E${row}`,parseInt(r.nights)||1, D(null,BLACK,false,9,false,'center'));
-      ns(`F${row}`,r.remarks||'', D(null,BLACK,false,9,true,'left'));
-      ns(`G${row}`,r.status||'',  H(sc.bg.replace('#',''),sc.color.replace('#',''),true,9,false,'center'));
-    });
-    nsWs['!ref']=`A1:G${nsData.length+2}`;
-    nsWs['!cols']=[{wch:5},{wch:22},{wch:14},{wch:12},{wch:7},{wch:35},{wch:14}];
-    nsWs['!rows']=[{hpt:30},{hpt:30},...nsData.map(()=>({hpt:36}))];
-    XLSX.utils.book_append_sheet(wb,nsWs,'No Shows');
+    const nsWs = XLSX.utils.aoa_to_sheet([
+      ['NO SHOW LOG', hotel.name, '', '', '', m.date ? fmtDate(m.date) : ''],
+      ['#', 'Guest Name', 'Resv./Room', 'Arrival', 'Nights', 'Remarks', 'Status'],
+      ...nsData.map((r, i) => [
+        i + 1,
+        r.name || '',
+        r.resv || '',
+        r.arrival  ? fmtDate(r.arrival) : '',
+        parseInt(r.nights) || 1,
+        r.remarks || '',
+        r.status || ''
+      ])
+    ]);
+    XLSX.utils.book_append_sheet(wb, nsWs, 'No Shows');
   }
 
-  XLSX.utils.book_append_sheet(wb,ws,'Front Office Handover');
-  // Move main sheet to front
-  wb.SheetNames = wb.SheetNames.filter(n=>n==='Front Office Handover').concat(wb.SheetNames.filter(n=>n!=='Front Office Handover'));
-
-  const dateStr=(m.date||todayISO()).replace(/-/g,'');
-  XLSX.writeFile(wb, `FrontOffice_Handover_${(hotel.short||hotel.name).replace(/\s+/g,'_')}_${dateStr}.xlsx`);
+  // ── 10. Download ──────────────────────────────────────────────
+  const dateStr  = (m.date || todayISO()).replace(/-/g, '');
+  const fileName = `FrontOffice_Handover_${(hotel.short || hotel.name).replace(/\s+/g,'_')}_${dateStr}.xlsx`;
+  XLSX.writeFile(wb, fileName);
   showToast('Excel exported ✓');
 }
 
@@ -2003,7 +1929,6 @@ window.showTab          = showTab;
 window.autoSave         = autoSave;
 window.manualSave       = manualSave;
 window.exportPDF              = exportPDF;
-window.exportExcel            = exportExcel;
 window.toggleCompletedCollapse = toggleCompletedCollapse;
 window.onDateChange     = onDateChange;
 window.switchKpiShift   = switchKpiShift;
