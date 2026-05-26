@@ -1825,144 +1825,179 @@ function exportExcel() {
   showToast('Excel exported ✓');
 }
 
-// ── Copy for Excel (paste-ready tab-separated data) ──────────
-// Matches the exact layout of FrontOffice_Handover_2026.xlsx
-// Columns A-K (11 cols), rows 1-28
+// ── Excel Cell Map Panel ──────────────────────────────────────
+// Shows each data value with its exact cell address.
+// Click any row to copy just that value → paste into that cell in Excel.
+// Nothing overwrites Excel formatting.
 function copyForExcel() {
   collectAll();
-  const m = state.meta;
+  const m    = state.meta;
   const hotel = currentHotel || { name: 'Hotel', short: 'Hotel' };
-  const fDate = d => d ? fmtDate(d) : '';
+  const fd   = d => d ? fmtDate(d) : '';
 
-  // Build a 28-row × 11-col grid (A=0 … K=10), all empty strings
-  const grid = Array.from({ length: 28 }, () => Array(11).fill(''));
-  const set = (r, c, v) => { grid[r][c] = v ?? ''; };  // r=0-based, c=0-based
+  // Build list of { cell, label, value } — only DATA cells, no template labels
+  const cells = [];
+  const add = (cell, label, value) => {
+    if (value === '' || value === null || value === undefined) return;
+    cells.push({ cell, label, value: String(value) });
+  };
 
-  // ── Row 1 (index 0): A1="Front Office", E1=hotel name, J1=date
-  set(0, 0, 'Front Office');
-  set(0, 4, hotel.name);
-  set(0, 9, 'Date:  ' + fDate(m.date));
+  // Header info
+  add('J1', 'Date',            'Date:  ' + fd(m.date));
+  add('J2', 'Agent name',      m.agent || '');
+  add('C3', 'Handover From',   m.from  || 'Morning Shift');
+  add('J3', 'Received By',     m.receiver ? 'Received by:  ' + m.receiver : '');
+  add('C4', 'Handover To',     m.to    || 'Evening Shift');
 
-  // ── Row 2: A2="Handover", J2=agent name
-  set(1, 0, 'Handover');
-  set(1, 9, 'Name of Agent:  ' + (m.agent || ''));
-
-  // ── Row 3: A3="Handover from", C3=from shift, J3=received by
-  set(2, 0, 'Handover from');
-  set(2, 2, m.from || 'Morning Shift');
-  set(2, 9, m.receiver ? 'Received by:  ' + m.receiver : '');
-
-  // ── Row 4: A4="Handover to:", C4=to shift
-  set(3, 0, 'Handover to:');
-  set(3, 2, m.to || 'Evening Shift');
-
-  // ── Row 5: headers (Date | Heartist | Handover | … | Update | Status)
-  set(4, 0, 'Date:');
-  set(4, 1, 'Heartist');
-  set(4, 2, 'Handover');
-  set(4, 9, 'Update');
-  set(4, 10, 'Status');
-
-  // ── Rows 6-15 (index 5-14): handover tasks
+  // Handover tasks (rows 6-15, cols A B C–I J K)
   const tasks = state.handover.filter(r => r.note || r.heartist).slice(0, 10);
-  for (let i = 0; i < 10; i++) {
-    const r = tasks[i] || {};
-    set(5 + i, 0, r.date ? fDate(r.date) : '');
-    set(5 + i, 1, r.heartist || '');
-    set(5 + i, 2, r.note ? (r.carriedFrom ? `↩ ${r.carriedFrom}  ${r.note}` : r.note) : '');
-    set(5 + i, 9, r.update || '');
-    set(5 + i, 10, r.status || '');
-  }
-
-  // ── Row 16 (index 15): "KPI's" header + "ALL MEMBERSHIP"
-  set(15, 0, "KPI's");
-  set(15, 9, 'ALL MEMBERSHIP');
-
-  // ── Row 17 (index 16): KPI column headers
-  set(16, 0, 'SHIFT');
-  set(16, 1, 'WALK IN');
-  set(16, 2, 'EXTENSIONS');
-  set(16, 3, 'BB upselling');
-  set(16, 4, 'Room upselling');
-  set(16, 5, 'Sparkles');
-  set(16, 6, 'Profiles');
-  set(16, 7, 'SHIFT');
-  set(16, 9, 'ALL ENROLLMENT');
-  set(16, 10, 'Welcome - drink redeemed');
-
-  // ── Rows 18-20 (index 17-19): Morning / Evening / Night KPIs
-  ['Morning', 'Evening', 'Night'].forEach((sh, si) => {
-    const d = state.kpis[sh] || {};
-    set(17 + si, 0, sh);
-    set(17 + si, 1, d.walkin || 0);
-    set(17 + si, 2, d.ext || 0);
-    set(17 + si, 3, d.bb || 0);
-    set(17 + si, 4, d.room || 0);
-    set(17 + si, 5, d.spark || 0);
-    set(17 + si, 6, d.prof || 0);
-    set(17 + si, 7, sh);
-    set(17 + si, 9, d.enrollment || 0);
-    set(17 + si, 10, d.welcome || 0);
+  tasks.forEach((r, i) => {
+    const row = 6 + i;
+    const label = `Task ${i+1}`;
+    if (r.date)     add(`A${row}`, `${label} · Date`,     fd(r.date));
+    if (r.heartist) add(`B${row}`, `${label} · Heartist`, r.heartist);
+    const note = r.note ? (r.carriedFrom ? `↩ ${r.carriedFrom}  ${r.note}` : r.note) : '';
+    if (note)       add(`C${row}`, `${label} · Note`,     note);
+    if (r.update)   add(`J${row}`, `${label} · Update`,   r.update);
+    if (r.status)   add(`K${row}`, `${label} · Status`,   r.status);
   });
 
-  // ── Row 21 (index 20): POD header row
-  set(20, 0, 'POD / VIP');
-  set(20, 1, 'Room Number');
-  set(20, 4, 'Name');
-  set(20, 7, 'Check-In');
-  set(20, 9, 'Check-Out');
-  set(20, 10, 'Remarks');
+  // KPI rows 18-20
+  const kpiFields = [
+    ['B','Walk In','walkin'],['C','Extensions','ext'],['D','BB Upselling','bb'],
+    ['E','Room Upselling','room'],['F','Sparkles','spark'],['G','Profiles','prof'],
+    ['J','Enrollment','enrollment'],['K','Welcome Drink','welcome']
+  ];
+  ['Morning','Evening','Night'].forEach((sh, si) => {
+    const row = 18 + si;
+    const d   = state.kpis[sh] || {};
+    kpiFields.forEach(([col, lbl, key]) => {
+      const v = d[key];
+      if (v) add(`${col}${row}`, `${sh} · ${lbl}`, v);
+    });
+  });
 
-  // ── Rows 22-24 (index 21-23): POD guests
+  // POD rows 22-24
   const podData = state.pod.filter(r => r.room || r.name).slice(0, 3);
-  for (let i = 0; i < 3; i++) {
-    const r = podData[i] || {};
-    set(21 + i, 0, i + 1);
-    set(21 + i, 1, r.room || '');
-    set(21 + i, 4, r.name || '');
-    set(21 + i, 7, r.checkin ? fDate(r.checkin) : '');
-    set(21 + i, 9, r.checkout ? fDate(r.checkout) : '');
-    set(21 + i, 10, r.remarks || '');
-  }
-
-  // ── Row 25 (index 24): Incognito header row
-  set(24, 0, 'Incognito');
-  set(24, 1, 'Room Number');
-  set(24, 4, 'Name');
-  set(24, 7, 'Check-In');
-  set(24, 9, 'Check-Out');
-  set(24, 10, 'Remarks');
-
-  // ── Rows 26-28 (index 25-27): Incognito guests
-  const icData = state.incognito.filter(r => r.room || r.name).slice(0, 3);
-  for (let i = 0; i < 3; i++) {
-    const r = icData[i] || {};
-    set(25 + i, 0, i + 1);
-    set(25 + i, 1, r.room || '');
-    set(25 + i, 4, r.name || '');
-    set(25 + i, 7, r.checkin ? fDate(r.checkin) : '');
-    set(25 + i, 9, r.checkout ? fDate(r.checkout) : '');
-    set(25 + i, 10, [r.priority, r.instructions].filter(Boolean).join(' — '));
-  }
-
-  // Convert grid to tab-separated text
-  const tsv = grid.map(row => row.join('\t')).join('\n');
-
-  navigator.clipboard.writeText(tsv).then(() => {
-    showToast('📋 Copied! Open your Excel → click cell A1 → Paste (Ctrl+V / Cmd+V)');
-  }).catch(() => {
-    // Fallback: textarea prompt
-    const ta = document.createElement('textarea');
-    ta.value = tsv;
-    ta.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:80vw;height:60vh;z-index:9999;font-size:12px;padding:8px;border:2px solid #2E8B57;border-radius:8px;background:#fff;';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    document.execCommand('copy');
-    showToast('📋 Copied! Paste into Excel at cell A1');
-    setTimeout(() => ta.remove(), 2000);
+  podData.forEach((r, i) => {
+    const row = 22 + i, lbl = `POD ${i+1}`;
+    if (r.room)     add(`B${row}`,  `${lbl} · Room`,     r.room);
+    if (r.name)     add(`E${row}`,  `${lbl} · Name`,     r.name);
+    if (r.checkin)  add(`H${row}`,  `${lbl} · Check-In`, fd(r.checkin));
+    if (r.checkout) add(`J${row}`,  `${lbl} · Check-Out`,fd(r.checkout));
+    if (r.remarks)  add(`K${row}`,  `${lbl} · Remarks`,  r.remarks);
   });
+
+  // Incognito rows 26-28
+  const icData = state.incognito.filter(r => r.room || r.name).slice(0, 3);
+  icData.forEach((r, i) => {
+    const row = 26 + i, lbl = `Incognito ${i+1}`;
+    if (r.room)     add(`B${row}`,  `${lbl} · Room`,     r.room);
+    if (r.name)     add(`E${row}`,  `${lbl} · Name`,     r.name);
+    if (r.checkin)  add(`H${row}`,  `${lbl} · Check-In`, fd(r.checkin));
+    if (r.checkout) add(`J${row}`,  `${lbl} · Check-Out`,fd(r.checkout));
+    const rem = [r.priority, r.instructions].filter(Boolean).join(' — ');
+    if (rem)        add(`K${row}`,  `${lbl} · Remarks`,  rem);
+  });
+
+  if (!cells.length) { showToast('No data to export yet', true); return; }
+  showExcelCellPanel(cells);
 }
+
+function showExcelCellPanel(cells) {
+  // Remove existing panel if any
+  const old = document.getElementById('excelCellPanel');
+  if (old) old.remove();
+
+  const panel = document.createElement('div');
+  panel.id = 'excelCellPanel';
+  panel.style.cssText = `
+    position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,0.55);backdrop-filter:blur(3px);
+  `;
+
+  const rows = cells.map(c => `
+    <tr class="ecp-row" data-value="${escapeHtml(c.value)}" onclick="ecpCopy(this)" title="Click to copy value">
+      <td class="ecp-cell">${escapeHtml(c.cell)}</td>
+      <td class="ecp-label">${escapeHtml(c.label)}</td>
+      <td class="ecp-value">${escapeHtml(c.value)}</td>
+      <td class="ecp-action"><span class="ecp-btn">Copy</span></td>
+    </tr>
+  `).join('');
+
+  panel.innerHTML = `
+    <div style="background:#fff;border-radius:14px;width:min(680px,94vw);max-height:88vh;
+                display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.35);overflow:hidden;">
+      <div style="padding:18px 22px 14px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:12px;">
+        <div style="flex:1;">
+          <div style="font-size:16px;font-weight:700;color:#111827;">📋 Excel Cell Reference</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:2px;">Click any row to copy its value → go to that cell in Excel → Paste. Formatting stays untouched.</div>
+        </div>
+        <button onclick="document.getElementById('excelCellPanel').remove()"
+          style="border:none;background:#f3f4f6;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:18px;color:#374151;display:flex;align-items:center;justify-content:center;">×</button>
+      </div>
+      <div style="overflow-y:auto;flex:1;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb;position:sticky;top:0;">
+              <th style="padding:10px 14px;text-align:left;font-weight:600;color:#374151;width:60px;">Cell</th>
+              <th style="padding:10px 14px;text-align:left;font-weight:600;color:#374151;width:160px;">Field</th>
+              <th style="padding:10px 14px;text-align:left;font-weight:600;color:#374151;">Value</th>
+              <th style="padding:10px 14px;width:64px;"></th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid #e5e7eb;background:#f9fafb;display:flex;gap:10px;align-items:center;">
+        <button onclick="ecpCopyAll()" style="background:#1d4ed8;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer;">Copy All as Reference</button>
+        <span style="font-size:12px;color:#9ca3af;">${cells.length} data cell${cells.length!==1?'s':''} to fill</span>
+      </div>
+    </div>
+    <style>
+      .ecp-row { border-bottom:1px solid #f3f4f6;cursor:pointer;transition:background .12s; }
+      .ecp-row:hover { background:#eff6ff; }
+      .ecp-row.copied { background:#d1fae5; }
+      .ecp-cell { padding:9px 14px;font-family:monospace;font-weight:700;color:#1d4ed8;white-space:nowrap; }
+      .ecp-label { padding:9px 14px;color:#6b7280;white-space:nowrap; }
+      .ecp-value { padding:9px 14px;color:#111827;word-break:break-word; }
+      .ecp-action { padding:9px 14px;text-align:center; }
+      .ecp-btn { background:#e0e7ff;color:#3730a3;border-radius:5px;padding:3px 10px;font-size:11px;font-weight:600;white-space:nowrap; }
+      .ecp-row.copied .ecp-btn { background:#a7f3d0;color:#065f46; }
+    </style>
+  `;
+
+  document.body.appendChild(panel);
+  // Close on backdrop click
+  panel.addEventListener('click', e => { if (e.target === panel) panel.remove(); });
+}
+
+window.ecpCopy = function(row) {
+  const val = row.dataset.value;
+  navigator.clipboard.writeText(val).then(() => {
+    row.classList.add('copied');
+    row.querySelector('.ecp-btn').textContent = '✓ Copied';
+    setTimeout(() => {
+      row.classList.remove('copied');
+      row.querySelector('.ecp-btn').textContent = 'Copy';
+    }, 2000);
+  }).catch(() => {
+    prompt('Copy this value:', val);
+  });
+};
+
+window.ecpCopyAll = function() {
+  const rows = document.querySelectorAll('#excelCellPanel .ecp-row');
+  const lines = Array.from(rows).map(r => {
+    const cell  = r.querySelector('.ecp-cell').textContent;
+    const label = r.querySelector('.ecp-label').textContent;
+    const val   = r.dataset.value;
+    return `${cell}\t${label}\t${val}`;
+  }).join('\n');
+  navigator.clipboard.writeText(lines).then(() => {
+    showToast('All cell references copied as text ✓');
+  });
+};
 
 // ── Status / Priority helpers ─────────────────────────────────
 function taskStatuses() { return ['Pending','In Progress','Done','Urgent','Follow Up','Info','Cancelled']; }
