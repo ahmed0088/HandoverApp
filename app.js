@@ -1825,6 +1825,145 @@ function exportExcel() {
   showToast('Excel exported ✓');
 }
 
+// ── Copy for Excel (paste-ready tab-separated data) ──────────
+// Matches the exact layout of FrontOffice_Handover_2026.xlsx
+// Columns A-K (11 cols), rows 1-28
+function copyForExcel() {
+  collectAll();
+  const m = state.meta;
+  const hotel = currentHotel || { name: 'Hotel', short: 'Hotel' };
+  const fDate = d => d ? fmtDate(d) : '';
+
+  // Build a 28-row × 11-col grid (A=0 … K=10), all empty strings
+  const grid = Array.from({ length: 28 }, () => Array(11).fill(''));
+  const set = (r, c, v) => { grid[r][c] = v ?? ''; };  // r=0-based, c=0-based
+
+  // ── Row 1 (index 0): A1="Front Office", E1=hotel name, J1=date
+  set(0, 0, 'Front Office');
+  set(0, 4, hotel.name);
+  set(0, 9, 'Date:  ' + fDate(m.date));
+
+  // ── Row 2: A2="Handover", J2=agent name
+  set(1, 0, 'Handover');
+  set(1, 9, 'Name of Agent:  ' + (m.agent || ''));
+
+  // ── Row 3: A3="Handover from", C3=from shift, J3=received by
+  set(2, 0, 'Handover from');
+  set(2, 2, m.from || 'Morning Shift');
+  set(2, 9, m.receiver ? 'Received by:  ' + m.receiver : '');
+
+  // ── Row 4: A4="Handover to:", C4=to shift
+  set(3, 0, 'Handover to:');
+  set(3, 2, m.to || 'Evening Shift');
+
+  // ── Row 5: headers (Date | Heartist | Handover | … | Update | Status)
+  set(4, 0, 'Date:');
+  set(4, 1, 'Heartist');
+  set(4, 2, 'Handover');
+  set(4, 9, 'Update');
+  set(4, 10, 'Status');
+
+  // ── Rows 6-15 (index 5-14): handover tasks
+  const tasks = state.handover.filter(r => r.note || r.heartist).slice(0, 10);
+  for (let i = 0; i < 10; i++) {
+    const r = tasks[i] || {};
+    set(5 + i, 0, r.date ? fDate(r.date) : '');
+    set(5 + i, 1, r.heartist || '');
+    set(5 + i, 2, r.note ? (r.carriedFrom ? `↩ ${r.carriedFrom}  ${r.note}` : r.note) : '');
+    set(5 + i, 9, r.update || '');
+    set(5 + i, 10, r.status || '');
+  }
+
+  // ── Row 16 (index 15): "KPI's" header + "ALL MEMBERSHIP"
+  set(15, 0, "KPI's");
+  set(15, 9, 'ALL MEMBERSHIP');
+
+  // ── Row 17 (index 16): KPI column headers
+  set(16, 0, 'SHIFT');
+  set(16, 1, 'WALK IN');
+  set(16, 2, 'EXTENSIONS');
+  set(16, 3, 'BB upselling');
+  set(16, 4, 'Room upselling');
+  set(16, 5, 'Sparkles');
+  set(16, 6, 'Profiles');
+  set(16, 7, 'SHIFT');
+  set(16, 9, 'ALL ENROLLMENT');
+  set(16, 10, 'Welcome - drink redeemed');
+
+  // ── Rows 18-20 (index 17-19): Morning / Evening / Night KPIs
+  ['Morning', 'Evening', 'Night'].forEach((sh, si) => {
+    const d = state.kpis[sh] || {};
+    set(17 + si, 0, sh);
+    set(17 + si, 1, d.walkin || 0);
+    set(17 + si, 2, d.ext || 0);
+    set(17 + si, 3, d.bb || 0);
+    set(17 + si, 4, d.room || 0);
+    set(17 + si, 5, d.spark || 0);
+    set(17 + si, 6, d.prof || 0);
+    set(17 + si, 7, sh);
+    set(17 + si, 9, d.enrollment || 0);
+    set(17 + si, 10, d.welcome || 0);
+  });
+
+  // ── Row 21 (index 20): POD header row
+  set(20, 0, 'POD / VIP');
+  set(20, 1, 'Room Number');
+  set(20, 4, 'Name');
+  set(20, 7, 'Check-In');
+  set(20, 9, 'Check-Out');
+  set(20, 10, 'Remarks');
+
+  // ── Rows 22-24 (index 21-23): POD guests
+  const podData = state.pod.filter(r => r.room || r.name).slice(0, 3);
+  for (let i = 0; i < 3; i++) {
+    const r = podData[i] || {};
+    set(21 + i, 0, i + 1);
+    set(21 + i, 1, r.room || '');
+    set(21 + i, 4, r.name || '');
+    set(21 + i, 7, r.checkin ? fDate(r.checkin) : '');
+    set(21 + i, 9, r.checkout ? fDate(r.checkout) : '');
+    set(21 + i, 10, r.remarks || '');
+  }
+
+  // ── Row 25 (index 24): Incognito header row
+  set(24, 0, 'Incognito');
+  set(24, 1, 'Room Number');
+  set(24, 4, 'Name');
+  set(24, 7, 'Check-In');
+  set(24, 9, 'Check-Out');
+  set(24, 10, 'Remarks');
+
+  // ── Rows 26-28 (index 25-27): Incognito guests
+  const icData = state.incognito.filter(r => r.room || r.name).slice(0, 3);
+  for (let i = 0; i < 3; i++) {
+    const r = icData[i] || {};
+    set(25 + i, 0, i + 1);
+    set(25 + i, 1, r.room || '');
+    set(25 + i, 4, r.name || '');
+    set(25 + i, 7, r.checkin ? fDate(r.checkin) : '');
+    set(25 + i, 9, r.checkout ? fDate(r.checkout) : '');
+    set(25 + i, 10, [r.priority, r.instructions].filter(Boolean).join(' — '));
+  }
+
+  // Convert grid to tab-separated text
+  const tsv = grid.map(row => row.join('\t')).join('\n');
+
+  navigator.clipboard.writeText(tsv).then(() => {
+    showToast('📋 Copied! Open your Excel → click cell A1 → Paste (Ctrl+V / Cmd+V)');
+  }).catch(() => {
+    // Fallback: textarea prompt
+    const ta = document.createElement('textarea');
+    ta.value = tsv;
+    ta.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:80vw;height:60vh;z-index:9999;font-size:12px;padding:8px;border:2px solid #2E8B57;border-radius:8px;background:#fff;';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    document.execCommand('copy');
+    showToast('📋 Copied! Paste into Excel at cell A1');
+    setTimeout(() => ta.remove(), 2000);
+  });
+}
+
 // ── Status / Priority helpers ─────────────────────────────────
 function taskStatuses() { return ['Pending','In Progress','Done','Urgent','Follow Up','Info','Cancelled']; }
 function noshowStatuses() { return ['No Show','Charged','Waived','Disputed','Refunded','Investigating']; }
@@ -1929,6 +2068,7 @@ window.showTab          = showTab;
 window.autoSave         = autoSave;
 window.manualSave       = manualSave;
 window.exportPDF              = exportPDF;
+window.copyForExcel           = copyForExcel;
 window.toggleCompletedCollapse = toggleCompletedCollapse;
 window.onDateChange     = onDateChange;
 window.switchKpiShift   = switchKpiShift;
