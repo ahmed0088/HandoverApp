@@ -1825,177 +1825,233 @@ function exportExcel() {
   showToast('Excel exported ✓');
 }
 
-// ── Excel Cell Map Panel ──────────────────────────────────────
-// Shows each data value with its exact cell address.
-// Click any row to copy just that value → paste into that cell in Excel.
-// Nothing overwrites Excel formatting.
+// ── Copy for Excel — Bulk Section Approach ───────────────────
+// Excel's merged cells mean we can't paste one big block.
+// Instead we give 5 targeted sections the user pastes one at a time.
+// Each section starts at a specific cell and only covers contiguous
+// writable (non-merged) columns so formatting is never touched.
 function copyForExcel() {
   collectAll();
   const m    = state.meta;
-  const hotel = currentHotel || { name: 'Hotel', short: 'Hotel' };
+  const hotel = currentHotel || { name:'Hotel', short:'Hotel' };
   const fd   = d => d ? fmtDate(d) : '';
 
-  // Build list of { cell, label, value } — only DATA cells, no template labels
-  const cells = [];
-  const add = (cell, label, value) => {
-    if (value === '' || value === null || value === undefined) return;
-    cells.push({ cell, label, value: String(value) });
-  };
-
-  // Header info
-  add('J1', 'Date',            'Date:  ' + fd(m.date));
-  add('J2', 'Agent name',      m.agent || '');
-  add('C3', 'Handover From',   m.from  || 'Morning Shift');
-  add('J3', 'Received By',     m.receiver ? 'Received by:  ' + m.receiver : '');
-  add('C4', 'Handover To',     m.to    || 'Evening Shift');
-
-  // Handover tasks (rows 6-15, cols A B C–I J K)
-  const tasks = state.handover.filter(r => r.note || r.heartist).slice(0, 10);
-  tasks.forEach((r, i) => {
-    const row = 6 + i;
-    const label = `Task ${i+1}`;
-    if (r.date)     add(`A${row}`, `${label} · Date`,     fd(r.date));
-    if (r.heartist) add(`B${row}`, `${label} · Heartist`, r.heartist);
-    const note = r.note ? (r.carriedFrom ? `↩ ${r.carriedFrom}  ${r.note}` : r.note) : '';
-    if (note)       add(`C${row}`, `${label} · Note`,     note);
-    if (r.update)   add(`J${row}`, `${label} · Update`,   r.update);
-    if (r.status)   add(`K${row}`, `${label} · Status`,   r.status);
-  });
-
-  // KPI rows 18-20
-  const kpiFields = [
-    ['B','Walk In','walkin'],['C','Extensions','ext'],['D','BB Upselling','bb'],
-    ['E','Room Upselling','room'],['F','Sparkles','spark'],['G','Profiles','prof'],
-    ['J','Enrollment','enrollment'],['K','Welcome Drink','welcome']
+  // ── SECTION 1: Header — paste into J1 (3 rows × 1 col)
+  // J1=date, J2=agent, J3=receiver  (J:L is merged so only col J matters)
+  const sec1 = [
+    ['Date:  ' + fd(m.date)],
+    ['Name of Agent:  ' + (m.agent || '')],
+    [m.receiver ? 'Received by:  ' + m.receiver : ''],
+    [m.to || 'Evening Shift'],
   ];
-  ['Morning','Evening','Night'].forEach((sh, si) => {
-    const row = 18 + si;
-    const d   = state.kpis[sh] || {};
-    kpiFields.forEach(([col, lbl, key]) => {
-      const v = d[key];
-      if (v) add(`${col}${row}`, `${sh} · ${lbl}`, v);
-    });
+
+  // ── SECTION 2: Shift selectors — paste into C3 (2 rows × 1 col)
+  // C3=from shift, C4=to shift  (C:I merged, only col C matters)
+  const sec2 = [
+    [m.from || 'Morning Shift'],
+    [m.to   || 'Evening Shift'],
+  ];
+
+  // ── SECTION 3: Tasks — paste into A6 (up to 10 rows × 3 cols: A,B,C)
+  // Columns D-I are merged into C so the paste A→B→C is safe.
+  // J and K are separate — handled in section 3b.
+  const tasks = state.handover.filter(r => r.note || r.heartist).slice(0, 10);
+  const sec3a = []; // A6:C15  (Date | Heartist | Note)
+  const sec3b = []; // J6:K15  (Update | Status)
+  for (let i = 0; i < 10; i++) {
+    const r = tasks[i] || {};
+    sec3a.push([
+      r.date     ? fd(r.date) : '',
+      r.heartist || '',
+      r.note     ? (r.carriedFrom ? `↩ ${r.carriedFrom}  ${r.note}` : r.note) : '',
+    ]);
+    sec3b.push([
+      r.update || '',
+      r.status || '',
+    ]);
+  }
+
+  // ── SECTION 4: KPIs — paste into B18 (3 rows × 8 cols: B-H skip I, then J K)
+  // B18:H18 are all individual cells. J18:K18 are also individual.
+  // Gap at I (merged into H), so we do B→G in one paste, J→K in another.
+  const shifts = ['Morning','Evening','Night'];
+  const sec4a = []; // B18:G20  (WalkIn|Ext|BB|Room|Spark|Prof)
+  const sec4b = []; // J18:K20  (Enrollment|Welcome)
+  shifts.forEach(sh => {
+    const d = state.kpis[sh] || {};
+    sec4a.push([d.walkin||0, d.ext||0, d.bb||0, d.room||0, d.spark||0, d.prof||0]);
+    sec4b.push([d.enrollment||0, d.welcome||0]);
   });
 
-  // POD rows 22-24
-  const podData = state.pod.filter(r => r.room || r.name).slice(0, 3);
-  podData.forEach((r, i) => {
-    const row = 22 + i, lbl = `POD ${i+1}`;
-    if (r.room)     add(`B${row}`,  `${lbl} · Room`,     r.room);
-    if (r.name)     add(`E${row}`,  `${lbl} · Name`,     r.name);
-    if (r.checkin)  add(`H${row}`,  `${lbl} · Check-In`, fd(r.checkin));
-    if (r.checkout) add(`J${row}`,  `${lbl} · Check-Out`,fd(r.checkout));
-    if (r.remarks)  add(`K${row}`,  `${lbl} · Remarks`,  r.remarks);
+  // ── SECTION 5: POD — paste into B22 then E22 then H22 then J22
+  // B22:D22 merged → only B; E22:G22 merged → only E; H22:I22 merged → only H
+  // So each group is a single column with 3 rows
+  const podData  = Array.from({length:3}, (_,i) => state.pod?.filter(r=>r.room||r.name)[i] || {});
+  const sec5room = podData.map(r => [r.room    || '']);
+  const sec5name = podData.map(r => [r.name    || '']);
+  const sec5ci   = podData.map(r => [r.checkin  ? fd(r.checkin)  : '']);
+  const sec5co   = podData.map(r => [r.checkout ? fd(r.checkout) : '']);
+  const sec5rem  = podData.map(r => [r.remarks  || '']);
+
+  // ── SECTION 6: Incognito — same column layout as POD
+  const icData   = Array.from({length:3}, (_,i) => state.incognito?.filter(r=>r.room||r.name)[i] || {});
+  const sec6room = icData.map(r => [r.room || '']);
+  const sec6name = icData.map(r => [r.name || '']);
+  const sec6ci   = icData.map(r => [r.checkin  ? fd(r.checkin)  : '']);
+  const sec6co   = icData.map(r => [r.checkout ? fd(r.checkout) : '']);
+  const sec6rem  = icData.map(r => [[r.priority,r.instructions].filter(Boolean).join(' — ')]);
+
+  const toTSV = rows => rows.map(r => r.join('\t')).join('\n');
+
+  const sections = [
+    {
+      id: 'header',
+      title: '1 · Header Info',
+      subtitle: 'Click cell J1 in Excel, then paste',
+      startCell: 'J1',
+      tsv: toTSV(sec1),
+      rows: sec1.length,
+      preview: [`Date: ${fd(m.date)}`, `Agent: ${m.agent||'—'}`, `Receiver: ${m.receiver||'—'}`, `To: ${m.to||'—'}`],
+    },
+    {
+      id: 'shifts',
+      title: '2 · Shift Direction',
+      subtitle: 'Click cell C3 in Excel, then paste',
+      startCell: 'C3',
+      tsv: toTSV(sec2),
+      rows: sec2.length,
+      preview: [`From: ${m.from||'Morning Shift'}`, `To: ${m.to||'Evening Shift'}`],
+    },
+    {
+      id: 'tasks_notes',
+      title: '3a · Tasks — Date / Heartist / Note',
+      subtitle: 'Click cell A6 in Excel, then paste',
+      startCell: 'A6',
+      tsv: toTSV(sec3a),
+      rows: sec3a.length,
+      preview: tasks.slice(0,3).map((r,i)=>`Row ${6+i}: ${r.heartist||'—'} · ${(r.note||'').slice(0,40)}`),
+    },
+    {
+      id: 'tasks_status',
+      title: '3b · Tasks — Update / Status',
+      subtitle: 'Click cell J6 in Excel, then paste',
+      startCell: 'J6',
+      tsv: toTSV(sec3b),
+      rows: sec3b.length,
+      preview: tasks.slice(0,3).map((r,i)=>`Row ${6+i}: ${r.update||'—'} · ${r.status||'—'}`),
+    },
+    {
+      id: 'kpi_numbers',
+      title: '4a · KPIs — Walk-in → Profiles',
+      subtitle: 'Click cell B18 in Excel, then paste',
+      startCell: 'B18',
+      tsv: toTSV(sec4a),
+      rows: 3,
+      preview: shifts.map((sh,i)=>`${sh}: ${sec4a[i].join(' | ')}`),
+    },
+    {
+      id: 'kpi_membership',
+      title: '4b · KPIs — Enrollment / Welcome',
+      subtitle: 'Click cell J18 in Excel, then paste',
+      startCell: 'J18',
+      tsv: toTSV(sec4b),
+      rows: 3,
+      preview: shifts.map((sh,i)=>`${sh}: Enroll=${sec4b[i][0]} Welcome=${sec4b[i][1]}`),
+    },
+    {
+      id: 'pod_room',   title: '5a · POD — Room Numbers',   subtitle: 'Click cell B22', startCell:'B22', tsv:toTSV(sec5room), rows:3, preview:podData.map((r,i)=>`POD ${i+1}: ${r.room||'—'}`) },
+    { id: 'pod_name',   title: '5b · POD — Guest Names',    subtitle: 'Click cell E22', startCell:'E22', tsv:toTSV(sec5name), rows:3, preview:podData.map((r,i)=>`POD ${i+1}: ${r.name||'—'}`) },
+    { id: 'pod_ci',     title: '5c · POD — Check-In Dates', subtitle: 'Click cell H22', startCell:'H22', tsv:toTSV(sec5ci),   rows:3, preview:podData.map((r,i)=>`POD ${i+1}: ${r.checkin||'—'}`) },
+    { id: 'pod_co',     title: '5d · POD — Check-Out Dates',subtitle: 'Click cell J22', startCell:'J22', tsv:toTSV(sec5co),   rows:3, preview:podData.map((r,i)=>`POD ${i+1}: ${r.checkout||'—'}`) },
+    { id: 'pod_rem',    title: '5e · POD — Remarks',        subtitle: 'Click cell K22', startCell:'K22', tsv:toTSV(sec5rem),  rows:3, preview:podData.map((r,i)=>`POD ${i+1}: ${r.remarks||'—'}`) },
+    { id: 'ic_room',    title: '6a · Incognito — Rooms',    subtitle: 'Click cell B26', startCell:'B26', tsv:toTSV(sec6room), rows:3, preview:icData.map((r,i)=>`IC ${i+1}: ${r.room||'—'}`) },
+    { id: 'ic_name',    title: '6b · Incognito — Names',    subtitle: 'Click cell E26', startCell:'E26', tsv:toTSV(sec6name), rows:3, preview:icData.map((r,i)=>`IC ${i+1}: ${r.name||'—'}`) },
+    { id: 'ic_ci',      title: '6c · Incognito — Check-In', subtitle: 'Click cell H26', startCell:'H26', tsv:toTSV(sec6ci),   rows:3, preview:icData.map((r,i)=>`IC ${i+1}: ${r.checkin||'—'}`) },
+    { id: 'ic_co',      title: '6d · Incognito — Check-Out',subtitle: 'Click cell J26', startCell:'J26', tsv:toTSV(sec6co),   rows:3, preview:icData.map((r,i)=>`IC ${i+1}: ${r.checkout||'—'}`) },
+    { id: 'ic_rem',     title: '6e · Incognito — Remarks',  subtitle: 'Click cell K26', startCell:'K26', tsv:toTSV(sec6rem),  rows:3, preview:icData.map((r,i)=>`IC ${i+1}: —`) },
+  ];
+
+  // Filter out sections with no meaningful data
+  const activeSections = sections.filter(s => {
+    if (!s.tsv.trim()) return false;
+    // Check if it has any non-empty, non-zero values
+    const vals = s.tsv.replace(/\t|\n/g, '').replace(/^0+$/, '');
+    return vals.length > 0;
   });
 
-  // Incognito rows 26-28
-  const icData = state.incognito.filter(r => r.room || r.name).slice(0, 3);
-  icData.forEach((r, i) => {
-    const row = 26 + i, lbl = `Incognito ${i+1}`;
-    if (r.room)     add(`B${row}`,  `${lbl} · Room`,     r.room);
-    if (r.name)     add(`E${row}`,  `${lbl} · Name`,     r.name);
-    if (r.checkin)  add(`H${row}`,  `${lbl} · Check-In`, fd(r.checkin));
-    if (r.checkout) add(`J${row}`,  `${lbl} · Check-Out`,fd(r.checkout));
-    const rem = [r.priority, r.instructions].filter(Boolean).join(' — ');
-    if (rem)        add(`K${row}`,  `${lbl} · Remarks`,  rem);
-  });
-
-  if (!cells.length) { showToast('No data to export yet', true); return; }
-  showExcelCellPanel(cells);
+  if (!activeSections.length) { showToast('No data to export yet', true); return; }
+  showExcelBulkPanel(activeSections);
 }
 
-function showExcelCellPanel(cells) {
-  // Remove existing panel if any
+function showExcelBulkPanel(sections) {
   const old = document.getElementById('excelCellPanel');
   if (old) old.remove();
 
   const panel = document.createElement('div');
   panel.id = 'excelCellPanel';
-  panel.style.cssText = `
-    position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;
-    background:rgba(0,0,0,0.55);backdrop-filter:blur(3px);
-  `;
+  panel.style.cssText = `position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);backdrop-filter:blur(3px);`;
 
-  const rows = cells.map(c => `
-    <tr class="ecp-row" data-value="${escapeHtml(c.value)}" onclick="ecpCopy(this)" title="Click to copy value">
-      <td class="ecp-cell">${escapeHtml(c.cell)}</td>
-      <td class="ecp-label">${escapeHtml(c.label)}</td>
-      <td class="ecp-value">${escapeHtml(c.value)}</td>
-      <td class="ecp-action"><span class="ecp-btn">Copy</span></td>
-    </tr>
+  const cards = sections.map((s, idx) => `
+    <div class="ecp-card" id="ecp-${s.id}">
+      <div class="ecp-card-head">
+        <div>
+          <div class="ecp-card-title">${escapeHtml(s.title)}</div>
+          <div class="ecp-card-sub">→ <strong>${escapeHtml(s.startCell)}</strong> &nbsp;·&nbsp; ${escapeHtml(s.subtitle.replace(/Click cell \w+/,''))}</div>
+        </div>
+        <button class="ecp-copy-btn" onclick="ecpBulkCopy('${s.id}',${idx})" data-tsv="${escapeHtml(s.tsv)}">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="5" width="10" height="12" rx="1.5"/><path d="M8 5V3.5A1.5 1.5 0 019.5 2h1A1.5 1.5 0 0112 3.5V5"/></svg>
+          Copy
+        </button>
+      </div>
+      <div class="ecp-preview">${s.preview.map(p=>`<span>${escapeHtml(p)}</span>`).join('')}</div>
+    </div>
   `).join('');
 
   panel.innerHTML = `
-    <div style="background:#fff;border-radius:14px;width:min(680px,94vw);max-height:88vh;
-                display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.35);overflow:hidden;">
-      <div style="padding:18px 22px 14px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:12px;">
+    <div style="background:#fff;border-radius:14px;width:min(600px,94vw);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.3);overflow:hidden;">
+      <div style="padding:18px 22px 12px;border-bottom:1px solid #e5e7eb;display:flex;align-items:flex-start;gap:12px;">
         <div style="flex:1;">
-          <div style="font-size:16px;font-weight:700;color:#111827;">📋 Excel Cell Reference</div>
-          <div style="font-size:12px;color:#6b7280;margin-top:2px;">Click any row to copy its value → go to that cell in Excel → Paste. Formatting stays untouched.</div>
+          <div style="font-size:16px;font-weight:700;color:#111827;">📋 Copy for Excel — Section by Section</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:3px;line-height:1.5;">Each section is a safe bulk paste. <strong>Copy</strong> a section → switch to Excel → click the cell shown → <strong>Ctrl+V</strong>. Formatting stays intact.</div>
         </div>
-        <button onclick="document.getElementById('excelCellPanel').remove()"
-          style="border:none;background:#f3f4f6;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:18px;color:#374151;display:flex;align-items:center;justify-content:center;">×</button>
+        <button onclick="document.getElementById('excelCellPanel').remove()" style="border:none;background:#f3f4f6;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:18px;color:#374151;flex-shrink:0;">×</button>
       </div>
-      <div style="overflow-y:auto;flex:1;">
-        <table style="width:100%;border-collapse:collapse;font-size:13px;">
-          <thead>
-            <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb;position:sticky;top:0;">
-              <th style="padding:10px 14px;text-align:left;font-weight:600;color:#374151;width:60px;">Cell</th>
-              <th style="padding:10px 14px;text-align:left;font-weight:600;color:#374151;width:160px;">Field</th>
-              <th style="padding:10px 14px;text-align:left;font-weight:600;color:#374151;">Value</th>
-              <th style="padding:10px 14px;width:64px;"></th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-      <div style="padding:14px 22px;border-top:1px solid #e5e7eb;background:#f9fafb;display:flex;gap:10px;align-items:center;">
-        <button onclick="ecpCopyAll()" style="background:#1d4ed8;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer;">Copy All as Reference</button>
-        <span style="font-size:12px;color:#9ca3af;">${cells.length} data cell${cells.length!==1?'s':''} to fill</span>
+      <div style="overflow-y:auto;flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:8px;">${cards}</div>
+      <div style="padding:12px 20px;border-top:1px solid #e5e7eb;background:#f9fafb;font-size:12px;color:#9ca3af;text-align:center;">
+        ${sections.length} section${sections.length!==1?'s':''} · Copy each one into Excel at the cell shown
       </div>
     </div>
     <style>
-      .ecp-row { border-bottom:1px solid #f3f4f6;cursor:pointer;transition:background .12s; }
-      .ecp-row:hover { background:#eff6ff; }
-      .ecp-row.copied { background:#d1fae5; }
-      .ecp-cell { padding:9px 14px;font-family:monospace;font-weight:700;color:#1d4ed8;white-space:nowrap; }
-      .ecp-label { padding:9px 14px;color:#6b7280;white-space:nowrap; }
-      .ecp-value { padding:9px 14px;color:#111827;word-break:break-word; }
-      .ecp-action { padding:9px 14px;text-align:center; }
-      .ecp-btn { background:#e0e7ff;color:#3730a3;border-radius:5px;padding:3px 10px;font-size:11px;font-weight:600;white-space:nowrap; }
-      .ecp-row.copied .ecp-btn { background:#a7f3d0;color:#065f46; }
+      .ecp-card{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;transition:border-color .15s;}
+      .ecp-card.done{background:#f0fdf4;border-color:#86efac;}
+      .ecp-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+      .ecp-card-title{font-size:13px;font-weight:600;color:#111827;}
+      .ecp-card-sub{font-size:11px;color:#6b7280;margin-top:2px;}
+      .ecp-card-sub strong{color:#1d4ed8;font-family:monospace;font-size:12px;}
+      .ecp-copy-btn{display:flex;align-items:center;gap:5px;background:#1d4ed8;color:#fff;border:none;border-radius:7px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:background .15s;}
+      .ecp-copy-btn:hover{background:#1e40af;}
+      .ecp-copy-btn.done{background:#16a34a;}
+      .ecp-preview{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;}
+      .ecp-preview span{background:#e0e7ff;color:#3730a3;border-radius:4px;padding:2px 8px;font-size:11px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .ecp-card.done .ecp-preview span{background:#dcfce7;color:#15803d;}
     </style>
   `;
 
   document.body.appendChild(panel);
-  // Close on backdrop click
   panel.addEventListener('click', e => { if (e.target === panel) panel.remove(); });
 }
 
-window.ecpCopy = function(row) {
-  const val = row.dataset.value;
-  navigator.clipboard.writeText(val).then(() => {
-    row.classList.add('copied');
-    row.querySelector('.ecp-btn').textContent = '✓ Copied';
-    setTimeout(() => {
-      row.classList.remove('copied');
-      row.querySelector('.ecp-btn').textContent = 'Copy';
-    }, 2000);
+window.ecpBulkCopy = function(id, idx) {
+  const card = document.getElementById('ecp-' + id);
+  const btn  = card?.querySelector('.ecp-copy-btn');
+  const tsv  = btn?.dataset.tsv || '';
+  // Unescape HTML entities in tsv
+  const txt  = tsv.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+  navigator.clipboard.writeText(txt).then(() => {
+    if (card) card.classList.add('done');
+    if (btn)  { btn.classList.add('done'); btn.textContent = '✓ Copied'; }
   }).catch(() => {
-    prompt('Copy this value:', val);
-  });
-};
-
-window.ecpCopyAll = function() {
-  const rows = document.querySelectorAll('#excelCellPanel .ecp-row');
-  const lines = Array.from(rows).map(r => {
-    const cell  = r.querySelector('.ecp-cell').textContent;
-    const label = r.querySelector('.ecp-label').textContent;
-    const val   = r.dataset.value;
-    return `${cell}\t${label}\t${val}`;
-  }).join('\n');
-  navigator.clipboard.writeText(lines).then(() => {
-    showToast('All cell references copied as text ✓');
+    prompt('Copy this (Ctrl+C):', txt);
   });
 };
 
