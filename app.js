@@ -676,7 +676,7 @@ function renderNotes() {
 }
 
 // ── HANDOVER TABLE ────────────────────────────────────────────
-function emptyTask()    { return { id:uid(), date:todayISO(), heartist: document.getElementById('ho_agent')?.value || state.meta.agent || '', note:'', update:'', status:'Pending' }; }
+function emptyTask()    { return { id:uid(), date:todayISO(), heartist: document.getElementById('ho_agent')?.value || '', note:'', update:'', status:'Pending' }; }
 
 function renderHandoverTable() {
   if (!state.handover.length) state.handover.push(emptyTask());
@@ -760,7 +760,6 @@ function makeTaskCard(r, i) {
 }
 
 function addHandoverRow() { 
-  collectMeta(); // capture latest agent name before stamping new row
   const newRow = emptyTask();
   state.handover.push(newRow); 
   renderHandoverTable(); 
