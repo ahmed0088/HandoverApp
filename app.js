@@ -676,7 +676,10 @@ function renderNotes() {
 }
 
 // ── HANDOVER TABLE ────────────────────────────────────────────
-function emptyTask()    { return { id:uid(), date:todayISO(), heartist: document.getElementById('ho_agent')?.value || '', note:'', update:'', status:'Pending' }; }
+function emptyTask() {
+  const agentName = document.getElementById('ho_agent') ? document.getElementById('ho_agent').value : (state.meta.agent || '');
+  return { id:uid(), date:todayISO(), heartist: agentName, note:'', update:'', status:'Pending' };
+}
 
 function renderHandoverTable() {
   if (!state.handover.length) state.handover.push(emptyTask());
