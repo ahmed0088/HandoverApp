@@ -8,61 +8,592 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-:root {
+:root,
+[data-theme="light"] {
+  /* ── Brand accent ── */
   --gold:        #C8A96E;
   --gold-light:  #E5C98A;
   --gold-dim:    #8A6B35;
   --gold-pale:   #FAF3E4;
   --gold-border: rgba(200,169,110,.25);
 
+  /* ── App chrome ── */
+  --topbar-bg:   #0A0F1E;
+  --topbar-border: rgba(200,169,110,.2);
+  --overlay-bg:  #0A0F1E;
+
+  /* ── Navy palette ── */
   --navy:        #0A0F1E;
   --navy2:       #111827;
   --navy3:       #1C2840;
   --navy4:       #243350;
 
+  /* ── Surfaces ── */
+  --bg:          #F4F2EE;
   --surface:     #F8F7F4;
   --surface2:    #F0EDE7;
+  --card-bg:     #FFFFFF;
   --border:      #E6E1D8;
   --border2:     #D4CEC3;
 
+  /* ── Text ── */
   --text:        #1A1F2E;
   --text2:       #4A5568;
   --text3:       #7A8899;
   --text4:       #B0BCC8;
+  --heading:     #0A0F1E;
 
+  /* ── Status colors ── */
   --green:       #0F6B3E;
   --green-bg:    #DCFAED;
   --green-border:#A8E8C8;
-
   --red:         #9B1B1B;
   --red-bg:      #FDE8E8;
   --red-border:  #F5B0B0;
-
   --amber:       #8A4A00;
   --amber-bg:    #FEF3DC;
   --amber-border:#E8C878;
-
   --blue:        #1A3D8A;
   --blue-bg:     #DCE8FE;
   --blue-border: #A8C0F0;
-
   --purple:      #5A1A9A;
   --purple-bg:   #EDE0FF;
   --purple-border:#C4A0F0;
 
+  /* ── Radius / shadow ── */
   --radius:      10px;
   --radius-lg:   16px;
   --radius-xl:   22px;
   --shadow:      0 1px 3px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.06);
   --shadow-lg:   0 4px 32px rgba(0,0,0,.12), 0 1px 4px rgba(0,0,0,.06);
   --shadow-card: 0 0 0 1px rgba(0,0,0,.04), 0 2px 8px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.04);
+
+  /* ── Input ── */
+  --input-bg:    #F8F7F4;
+  --input-focus: #FFFFFF;
+  --table-head-text: rgba(255,255,255,.7);
+  --table-even:  rgba(248,247,244,.6);
+  --table-hover: #FAF3E4;
 }
+
+/* ══════════════════════════════════════════════════
+   DARK THEME
+   ══════════════════════════════════════════════════ */
+[data-theme="dark"] {
+  --gold:        #D4AA6A;
+  --gold-light:  #F0CA8A;
+  --gold-dim:    #A07840;
+  --gold-pale:   rgba(200,169,110,.1);
+  --gold-border: rgba(200,169,110,.2);
+
+  --topbar-bg:   #0D1117;
+  --topbar-border: rgba(200,169,110,.15);
+  --overlay-bg:  #060912;
+
+  --navy:        #0D1117;
+  --navy2:       #161B22;
+  --navy3:       #21262D;
+  --navy4:       #30363D;
+
+  --bg:          #0D1117;
+  --surface:     #161B22;
+  --surface2:    #21262D;
+  --card-bg:     #1A1F2B;
+  --border:      #30363D;
+  --border2:     #3C434D;
+
+  --text:        #E6EDF3;
+  --text2:       #B0BEC5;
+  --text3:       #7A8899;
+  --text4:       #4A5568;
+  --heading:     #F0F6FC;
+
+  --green:       #3FB950;
+  --green-bg:    rgba(63,185,80,.12);
+  --green-border:rgba(63,185,80,.3);
+  --red:         #F85149;
+  --red-bg:      rgba(248,81,73,.12);
+  --red-border:  rgba(248,81,73,.3);
+  --amber:       #E3B341;
+  --amber-bg:    rgba(227,179,65,.12);
+  --amber-border:rgba(227,179,65,.3);
+  --blue:        #58A6FF;
+  --blue-bg:     rgba(88,166,255,.12);
+  --blue-border: rgba(88,166,255,.3);
+  --purple:      #BC8CFF;
+  --purple-bg:   rgba(188,140,255,.12);
+  --purple-border:rgba(188,140,255,.3);
+
+  --radius:      10px;
+  --radius-lg:   16px;
+  --radius-xl:   22px;
+  --shadow:      0 1px 3px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.2);
+  --shadow-lg:   0 4px 32px rgba(0,0,0,.5), 0 1px 4px rgba(0,0,0,.3);
+  --shadow-card: 0 0 0 1px rgba(255,255,255,.04), 0 2px 8px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.2);
+
+  --input-bg:    #161B22;
+  --input-focus: #21262D;
+  --table-head-text: rgba(255,255,255,.65);
+  --table-even:  rgba(255,255,255,.02);
+  --table-hover: rgba(200,169,110,.06);
+}
+
+/* Dark mode body background */
+[data-theme="dark"] body { background: var(--bg); }
+[data-theme="dark"] .card { background: var(--card-bg); border-color: var(--border); }
+[data-theme="dark"] .card-incognito { background: linear-gradient(135deg, var(--card-bg) 0%, rgba(188,140,255,.05) 100%); }
+[data-theme="dark"] .field input,
+[data-theme="dark"] .field select,
+[data-theme="dark"] .field textarea { background: var(--input-bg); color: var(--text); }
+[data-theme="dark"] .field input:focus,
+[data-theme="dark"] .field select:focus { background: var(--input-focus); }
+[data-theme="dark"] .shift-pill { background: var(--surface2); border-color: var(--border); color: var(--text2); }
+[data-theme="dark"] .shift-pill.active { background: var(--navy3); color: var(--gold-light); }
+[data-theme="dark"] .kpi-tile { background: var(--surface2); border-color: var(--border); }
+[data-theme="dark"] .kpi-input { color: var(--gold-light); }
+[data-theme="dark"] .cell-input,
+[data-theme="dark"] .cell-textarea { color: var(--text); }
+[data-theme="dark"] .cell-input:focus,
+[data-theme="dark"] .cell-textarea:focus { background: var(--surface2); }
+[data-theme="dark"] .data-table tbody tr { border-color: var(--border); }
+[data-theme="dark"] .data-table tbody td { color: var(--text); }
+[data-theme="dark"] .data-table tbody tr:nth-child(even) td { background: var(--table-even); }
+[data-theme="dark"] .data-table tbody tr:hover td { background: var(--table-hover); }
+[data-theme="dark"] .btn-ghost { color: var(--text2); border-color: var(--border); }
+[data-theme="dark"] .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+[data-theme="dark"] .log-drawer { background: var(--surface); border-color: var(--border); }
+[data-theme="dark"] .log-drawer-header { background: var(--surface2); border-color: var(--border); }
+[data-theme="dark"] .log-entry { background: var(--surface2); border-color: var(--border); }
+[data-theme="dark"] .m-card { background: var(--surface2); border-color: var(--border); }
+[data-theme="dark"] .m-card-field input,
+[data-theme="dark"] .m-card-field select,
+[data-theme="dark"] .m-card-field textarea { background: var(--surface); border-color: var(--border); color: var(--text); }
+[data-theme="dark"] .notes-grid textarea { background: var(--surface2); border-color: var(--border); color: var(--text); }
+[data-theme="dark"] .notes-grid textarea:focus { background: var(--input-focus); }
+[data-theme="dark"] .sum-block { background: var(--card-bg); border-color: var(--border); }
+[data-theme="dark"] .sum-stat { background: var(--surface2); border-color: var(--border); }
+[data-theme="dark"] .sum-stat-value { color: var(--gold-light); }
+[data-theme="dark"] .info-banner { background: rgba(200,169,110,.08); border-color: rgba(200,169,110,.2); }
+[data-theme="dark"] .table-wrap { border-color: var(--border); }
+[data-theme="dark"] .row-num { background: var(--surface2); border-color: var(--border); }
+[data-theme="dark"] .del-btn { background: var(--surface2); border-color: var(--border); }
+[data-theme="dark"] .section-label { color: var(--text3); }
+[data-theme="dark"] .card-title { color: var(--gold-light); }
+[data-theme="dark"] .card-badge { background: var(--surface2); color: var(--text3); border-color: var(--border); }
+[data-theme="dark"] .card-head { border-color: var(--surface2); }
+[data-theme="dark"] .add-row-btn { color: var(--text3); border-color: var(--border2); }
+[data-theme="dark"] .add-row-btn:hover { border-color: var(--gold); color: var(--gold); background: rgba(200,169,110,.08); }
+
+/* ══════════════════════════════════════════════════
+   OPERA CLOUD THEME  — pixel-accurate to Oracle Opera Cloud PMS
+   Charcoal topbar · teal accent line · light gray body · white cards
+   Colorful stat tiles (orange/teal/purple) · clean sans-serif type
+   ══════════════════════════════════════════════════ */
+[data-theme="opera"] {
+  /* Opera primary accent: teal/cyan from the real UI */
+  --gold:        #00A9A0;
+  --gold-light:  #00C4BA;
+  --gold-dim:    #007A73;
+  --gold-pale:   #E5F7F6;
+  --gold-border: rgba(0,169,160,.25);
+
+  /* Topbar: very dark charcoal like the real Opera bar, with teal top-line */
+  --topbar-bg:   #2C2C2C;
+  --topbar-border: #00A9A0;   /* teal accent line at bottom of topbar */
+  --overlay-bg:  #2C2C2C;
+
+  --navy:        #2C2C2C;
+  --navy2:       #363636;
+  --navy3:       #424242;
+  --navy4:       #505050;
+
+  /* Body: Opera's signature light warm gray */
+  --bg:          #EBEBEB;
+  --surface:     #F2F2F2;
+  --surface2:    #E8E8E8;
+  --card-bg:     #FFFFFF;
+  --border:      #D8D8D8;
+  --border2:     #C8C8C8;
+
+  /* Text: Opera uses dark gray, not navy */
+  --text:        #333333;
+  --text2:       #555555;
+  --text3:       #888888;
+  --text4:       #AAAAAA;
+  --heading:     #222222;
+
+  /* Status colors */
+  --green:       #2E7D32;
+  --green-bg:    #E8F5E9;
+  --green-border:#A5D6A7;
+  --red:         #C62828;
+  --red-bg:      #FFEBEE;
+  --red-border:  #EF9A9A;
+  --amber:       #E65100;
+  --amber-bg:    #FFF3E0;
+  --amber-border:#FFCC80;
+  --blue:        #1565C0;
+  --blue-bg:     #E3F2FD;
+  --blue-border: #90CAF9;
+  --purple:      #6A1B9A;
+  --purple-bg:   #F3E5F5;
+  --purple-border:#CE93D8;
+
+  /* Opera uses very subtle radius — almost squared cards */
+  --radius:      4px;
+  --radius-lg:   6px;
+  --radius-xl:   8px;
+  --shadow:      0 1px 3px rgba(0,0,0,.08), 0 1px 6px rgba(0,0,0,.06);
+  --shadow-lg:   0 2px 12px rgba(0,0,0,.15);
+  --shadow-card: 0 1px 4px rgba(0,0,0,.1), 0 0 0 1px rgba(0,0,0,.04);
+
+  --input-bg:    #FFFFFF;
+  --input-focus: #FFFFFF;
+  --table-head-text: rgba(255,255,255,.9);
+  --table-even:  #FAFAFA;
+  --table-hover: #E5F7F6;
+}
+
+/* ── Opera body & base ───────────────────────────────────── */
+[data-theme="opera"] body {
+  font-family: Arial, 'Oracle Sans', Helvetica, sans-serif;
+  background: var(--bg);
+  font-size: 13px;
+}
+
+/* ── Opera topbar: teal accent line on TOP (not bottom) ─── */
+[data-theme="opera"] .topbar {
+  background: var(--topbar-bg);
+  border-bottom: none;
+  border-top: 3px solid #00A9A0;
+  /* Shift content down to compensate for top border */
+  padding-top: 3px;
+}
+
+/* Teal line sits at the very top of the screen — mimic Opera's top bar */
+[data-theme="opera"] .topbar::before {
+  content: '';
+  position: absolute;
+  top: -3px; left: 0; right: 0;
+  height: 3px;
+  background: #00A9A0;
+}
+
+/* ── Opera hotel switch / nav ──────────────────────────── */
+[data-theme="opera"] .hotel-switch-btn {
+  background: rgba(255,255,255,.1);
+  border-color: rgba(255,255,255,.15);
+  color: #DDDDDD;
+  border-radius: 3px;
+}
+[data-theme="opera"] .hotel-switch-btn:hover {
+  background: rgba(0,169,160,.2);
+  border-color: rgba(0,169,160,.4);
+  color: #fff;
+}
+[data-theme="opera"] .topbar-title {
+  color: rgba(255,255,255,.75);
+  font-family: Arial, sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  letter-spacing: .3px;
+}
+[data-theme="opera"] .meta-chip {
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.1);
+  color: #BBBBBB;
+  border-radius: 3px;
+}
+[data-theme="opera"] .meta-chip strong { color: rgba(255,255,255,.9); }
+
+/* ── Opera cards: white, very subtle shadow, squared ─────── */
+[data-theme="opera"] .card {
+  background: #FFFFFF;
+  border: 1px solid #D8D8D8;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+[data-theme="opera"] .card-incognito {
+  background: #FFFFFF;
+  border-color: #D8D8D8;
+}
+[data-theme="opera"] .card-head {
+  background: #F7F7F7;
+  border-bottom: 1px solid #E0E0E0;
+  padding-bottom: 10px;
+}
+[data-theme="opera"] .card-title {
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: #333333;
+  letter-spacing: 0;
+}
+[data-theme="opera"] .card-badge {
+  background: #E5F7F6;
+  color: #007A73;
+  border-color: rgba(0,169,160,.3);
+  border-radius: 3px;
+}
+[data-theme="opera"] .card-badge-purple {
+  background: #F3E5F5;
+  color: #6A1B9A;
+  border-color: #CE93D8;
+}
+
+/* ── Opera table: Opera-style header teal gradient ───────── */
+[data-theme="opera"] .data-table thead tr {
+  background: linear-gradient(to right, #2E7878 0%, #00A9A0 100%);
+}
+[data-theme="opera"] .data-table tbody tr:nth-child(even) td {
+  background: #FAFAFA;
+}
+[data-theme="opera"] .data-table tbody tr:hover td {
+  background: #E5F7F6;
+}
+
+/* ── Opera KPI tiles: colored accent-top border ──────────── */
+[data-theme="opera"] .kpi-tile {
+  background: #FFFFFF;
+  border: 1px solid #D8D8D8;
+  border-top: 3px solid #00A9A0;
+  border-radius: var(--radius);
+}
+[data-theme="opera"] .kpi-tile:hover {
+  border-top-color: #00C4BA;
+  box-shadow: 0 2px 8px rgba(0,169,160,.15);
+}
+[data-theme="opera"] .kpi-input {
+  color: #2C2C2C;
+  font-family: Arial, sans-serif;
+  font-size: 28px;
+}
+[data-theme="opera"] .kpi-label {
+  color: #777777;
+  font-family: Arial, sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+}
+
+/* ── Opera shift pills ────────────────────────────────────── */
+[data-theme="opera"] .shift-pill {
+  background: #FFFFFF;
+  border-color: #D0D0D0;
+  color: #555555;
+  border-radius: 3px;
+  font-family: Arial, sans-serif;
+}
+[data-theme="opera"] .shift-pill.active {
+  background: #00A9A0;
+  border-color: #007A73;
+  color: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(0,169,160,.3);
+}
+
+/* ── Opera buttons ────────────────────────────────────────── */
+[data-theme="opera"] .btn-gold {
+  background: #00A9A0;
+  border-color: #007A73;
+  box-shadow: 0 1px 4px rgba(0,169,160,.3);
+  border-radius: 3px;
+  font-family: Arial, sans-serif;
+}
+[data-theme="opera"] .btn-gold:hover {
+  background: #00C4BA;
+  box-shadow: 0 3px 10px rgba(0,169,160,.4);
+  transform: none;
+}
+[data-theme="opera"] .btn-dark {
+  background: #2C2C2C;
+  border-color: #424242;
+  border-radius: 3px;
+}
+[data-theme="opera"] .btn-ghost {
+  border-radius: 3px;
+  font-family: Arial, sans-serif;
+  border-color: #C8C8C8;
+  color: #444444;
+}
+[data-theme="opera"] .btn-ghost:hover {
+  background: #E5F7F6;
+  border-color: #00A9A0;
+  color: #007A73;
+}
+
+/* ── Opera form fields ────────────────────────────────────── */
+[data-theme="opera"] .field input,
+[data-theme="opera"] .field select,
+[data-theme="opera"] .field textarea {
+  background: #FFFFFF;
+  border: 1px solid #C8C8C8;
+  border-radius: 3px;
+  font-family: Arial, sans-serif;
+  color: #333333;
+}
+[data-theme="opera"] .field input:focus,
+[data-theme="opera"] .field select:focus,
+[data-theme="opera"] .field textarea:focus {
+  border-color: #00A9A0;
+  box-shadow: 0 0 0 2px rgba(0,169,160,.15);
+}
+[data-theme="opera"] .field label {
+  color: #666666;
+  font-family: Arial, sans-serif;
+  font-size: 10px;
+}
+[data-theme="opera"] .cell-input,
+[data-theme="opera"] .cell-textarea {
+  font-family: Arial, sans-serif;
+  color: #333333;
+  border-radius: 2px;
+}
+[data-theme="opera"] .cell-input:focus,
+[data-theme="opera"] .cell-textarea:focus {
+  border-color: #00A9A0;
+  box-shadow: 0 0 0 2px rgba(0,169,160,.12);
+  background: #FFFFFF;
+}
+
+/* ── Opera status select ──────────────────────────────────── */
+[data-theme="opera"] .status-sel { border-radius: 3px; font-family: Arial, sans-serif; }
+
+/* ── Opera add-row button ─────────────────────────────────── */
+[data-theme="opera"] .add-row-btn {
+  border-color: #C0C0C0;
+  color: #777777;
+  border-radius: 3px;
+  font-family: Arial, sans-serif;
+}
+[data-theme="opera"] .add-row-btn:hover {
+  border-color: #00A9A0;
+  color: #007A73;
+  background: #E5F7F6;
+}
+
+/* ── Opera notes / text areas ─────────────────────────────── */
+[data-theme="opera"] .notes-grid textarea {
+  background: #FFFFFF;
+  border-color: #C8C8C8;
+  border-radius: 3px;
+  font-family: Arial, sans-serif;
+  color: #333333;
+}
+[data-theme="opera"] .notes-grid textarea:focus {
+  border-color: #00A9A0;
+  box-shadow: 0 0 0 2px rgba(0,169,160,.1);
+  background: #FFFFFF;
+}
+
+/* ── Opera section label ──────────────────────────────────── */
+[data-theme="opera"] .section-label {
+  color: #777777;
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+  letter-spacing: .4px;
+}
+
+/* ── Opera table wrap ─────────────────────────────────────── */
+[data-theme="opera"] .table-wrap { border-color: #D0D0D0; border-radius: 4px; }
+[data-theme="opera"] .row-num { background: #F0F0F0; border-color: #D0D0D0; }
+[data-theme="opera"] .del-btn { background: #F5F5F5; border-color: #D0D0D0; border-radius: 3px; }
+
+/* ── Opera log drawer ─────────────────────────────────────── */
+[data-theme="opera"] .log-drawer { background: #FFFFFF; border-color: #D8D8D8; }
+[data-theme="opera"] .log-drawer-header { background: #F7F7F7; border-color: #E0E0E0; }
+[data-theme="opera"] .log-entry { background: #F9F9F9; border-color: #E0E0E0; }
+[data-theme="opera"] .log-undo-btn { color: #00A9A0; border-color: rgba(0,169,160,.4); background: rgba(0,169,160,.06); }
+[data-theme="opera"] .log-undo-btn:hover { background: rgba(0,169,160,.14); border-color: #00A9A0; }
+
+/* ── Opera summary blocks ─────────────────────────────────── */
+[data-theme="opera"] .sum-block { background: #FFFFFF; border-color: #D8D8D8; }
+[data-theme="opera"] .sum-head { background: linear-gradient(to right, #2E7878, #00A9A0); }
+[data-theme="opera"] .sum-head h3 { color: #FFFFFF; }
+[data-theme="opera"] .sum-stat { background: #F7F7F7; border-color: #E0E0E0; }
+[data-theme="opera"] .sum-stat-value { color: #2C2C2C; }
+[data-theme="opera"] .sum-stat-label { color: #777777; }
+
+/* ── Opera info banners ────────────────────────────────────── */
+[data-theme="opera"] .info-banner {
+  background: #E5F7F6;
+  border-color: rgba(0,169,160,.3);
+  color: #007A73;
+}
+[data-theme="opera"] .info-banner-red {
+  background: #FFEBEE;
+  border-color: #EF9A9A;
+  color: #C62828;
+}
+[data-theme="opera"] .info-banner-purple {
+  background: #F3E5F5;
+  border-color: #CE93D8;
+  color: #6A1B9A;
+}
+
+/* ── Opera theme toggle active state ─────────────────────── */
+[data-theme="opera"] .theme-btn.active {
+  background: rgba(0,169,160,.25);
+  color: #00C4BA;
+}
+
+/* ── Opera m-cards (mobile) ───────────────────────────────── */
+[data-theme="opera"] .m-card { background: #FFFFFF; border-color: #D8D8D8; border-radius: 4px; }
+[data-theme="opera"] .m-card-field input,
+[data-theme="opera"] .m-card-field select,
+[data-theme="opera"] .m-card-field textarea {
+  background: #FFFFFF;
+  border-color: #C8C8C8;
+  border-radius: 3px;
+  color: #333333;
+  font-family: Arial, sans-serif;
+}
+
+/* ── Opera hotel overlay ──────────────────────────────────── */
+[data-theme="opera"] .hotel-overlay {
+  background: #2C2C2C;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0,169,160,.15) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 30% at 80% 80%, rgba(0,169,160,.06) 0%, transparent 60%);
+}
+[data-theme="opera"] .hotel-card {
+  background: #363636;
+  border-color: #484848;
+}
+[data-theme="opera"] .hotel-card:hover {
+  border-color: rgba(0,169,160,.5);
+  box-shadow: 0 8px 32px rgba(0,0,0,.4);
+}
+[data-theme="opera"] .hotel-overlay-header h1 { color: #FFFFFF; font-family: Arial, sans-serif; }
+[data-theme="opera"] .hotel-overlay-stars { color: #00A9A0; }
+
+/* ── Opera undo/redo and log buttons ─────────────────────── */
+[data-theme="opera"] .undo-btn:hover:not(:disabled) {
+  background: rgba(0,169,160,.15);
+  color: #00A9A0;
+  border-color: rgba(0,169,160,.3);
+}
+[data-theme="opera"] .log-open-btn:hover {
+  background: rgba(0,169,160,.15);
+  color: #00A9A0;
+  border-color: rgba(0,169,160,.3);
+}
+
+/* ── Opera FB chip ────────────────────────────────────────── */
+[data-theme="opera"] .fb-chip { border-color: rgba(255,255,255,.1); }
+
+/* ── Opera toast ──────────────────────────────────────────── */
+[data-theme="opera"] .toast {
+  background: #2C2C2C;
+  border-left-color: #00A9A0;
+}
+[data-theme="opera"] .toast svg { color: #00A9A0; }
+
 
 html { scroll-behavior: smooth; }
 
 body {
   font-family: 'DM Sans', sans-serif;
-  background: var(--surface);
+  background: var(--bg, var(--surface));
   color: var(--text);
   min-height: 100vh;
   font-size: 14px;
@@ -81,7 +612,7 @@ body {
 .hotel-overlay {
   position: fixed;
   inset: 0;
-  background: var(--navy);
+  background: var(--overlay-bg, var(--navy));
   z-index: 9999;
   display: flex;
   align-items: center;
@@ -198,13 +729,13 @@ body {
    TOP BAR
    ════════════════════════════════════════════════════════════ */
 .topbar {
-  background: var(--navy);
+  background: var(--topbar-bg, var(--navy));
   height: 58px;
   padding: 0 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid rgba(200,169,110,.2);
+  border-bottom: 1px solid var(--topbar-border, rgba(200,169,110,.2));
   position: sticky;
   top: 0;
   z-index: 100;
@@ -440,7 +971,7 @@ body {
    CARD
    ════════════════════════════════════════════════════════════ */
 .card {
-  background: #fff;
+  background: var(--card-bg, #fff);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 20px 22px;
@@ -1376,3 +1907,48 @@ body {
   background: #F0FDF4;
 }
 .completed-section .data-table tbody td { opacity: .85; }
+
+/* ════════════════════════════════════════════════════════════
+   THEME TOGGLE
+   ════════════════════════════════════════════════════════════ */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.theme-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.theme-btn svg { width: 13px; height: 13px; }
+.theme-btn:hover { background: rgba(255,255,255,.1); color: rgba(255,255,255,.7); }
+.theme-btn.active {
+  background: rgba(200,169,110,.25);
+  color: var(--gold-light);
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
+}
+
+[data-theme="opera"] .theme-btn.active {
+  background: rgba(0,119,204,.3);
+  color: #88BBEE;
+}
+
+[data-theme="dark"] .theme-btn.active {
+  background: rgba(200,169,110,.2);
+  color: var(--gold-light);
+}

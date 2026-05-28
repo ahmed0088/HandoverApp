@@ -1,6 +1,32 @@
 /* app.js - COMPLETE REPLACEMENT with KPI fix */
 "use strict";
 
+// ── Theme System ──────────────────────────────────────────────
+const THEMES = {
+  light:  { label: 'Light',       icon: '☀️' },
+  dark:   { label: 'Dark',        icon: '🌙' },
+  opera:  { label: 'Opera Cloud', icon: '🏨' },
+};
+
+let currentTheme = localStorage.getItem('fo_theme') || 'light';
+
+function applyTheme(theme) {
+  currentTheme = theme;
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('fo_theme', theme);
+  // Update toggle buttons if they exist
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.theme === theme);
+  });
+}
+
+function initTheme() {
+  applyTheme(currentTheme);
+}
+
+window.applyTheme = applyTheme;
+
+
 // ── Global state ──────────────────────────────────────────────
 let db, currentRef, firebaseEnabled = false;
 let currentHotel = null;
@@ -55,6 +81,7 @@ let state = freshState();
 
 // ── Init ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
   buildHotelSelector();
   const saved = localStorage.getItem('fo_last_hotel');
   if (saved && HOTELS.find(h => h.id === saved)) {
@@ -70,9 +97,7 @@ function buildHotelSelector() {
     <div class="hotel-card" onclick="selectHotel('${h.id}', true)">
       <div class="hotel-card-accent" style="background:${h.color}"></div>
       <div class="hotel-card-logo-wrap">
-        <img class="hotel-card-logo" src="${h.logo}" alt="${escapeHtml(h.short)} logo"
-          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="hotel-card-logo-fallback" style="display:none;color:${h.color}">${escapeHtml(h.short)}</div>
+        ${h.logoBadge || `<div class="hotel-card-logo-fallback" style="color:${h.color}">${escapeHtml(h.short)}</div>`}
       </div>
       <div class="hotel-card-info">
         <div class="hotel-card-name">${escapeHtml(h.name)}</div>
@@ -427,20 +452,47 @@ function fallbackLS() {
 function loadFromDB() {
   if (currentRef) currentRef.off();
   currentRef = db.ref(dbPath());
-  currentRef.once('value', snap => {
+
+  let initialLoad = true;
+
+  // Real-time .on('value') listener — syncs all agents live.
+  // Skips re-render while user is typing to avoid caret jumps.
+  currentRef.on('value', snap => {
     const d = snap.val();
-    if (d && !isUndoRedo) {
-      isLoading = true;
-      mergeState(d);
-      isLoading = false;
+
+    if (initialLoad) {
+      initialLoad = false;
+      if (d && !isUndoRedo) {
+        isLoading = true;
+        mergeState(d);
+        isLoading = false;
+      }
+      carryOverFromYesterday().then(() => {
+        renderAll();
+        if (historyStack.length === 0) pushToHistory();
+        loadTrashFromDB();
+      });
+      return;
     }
-    // After loading today, check yesterday for unfinished tasks
-    carryOverFromYesterday().then(() => {
-      renderAll();
-      if (historyStack.length === 0) pushToHistory();
-      loadTrashFromDB();
-    });
-  }).catch(() => showToast('Could not load data', true));
+
+    // Subsequent real-time updates from other clients
+    if (!d || isUndoRedo || isRestoring) return;
+
+    if (userIsTyping) {
+      pendingRemoteState = d;
+      return;
+    }
+
+    isLoading = true;
+    mergeState(d);
+    isLoading = false;
+    renderAll();
+    autoResizeAll();
+
+  }, err => {
+    console.warn('Firebase listener error', err);
+    showToast('Could not load data', true);
+  });
 }
 
 // Statuses considered "not done" — these carry over to the next day
@@ -2172,6 +2224,7 @@ window.addIncognitoRow  = addIncognitoRow;
 window.addPodRow        = addPodRow;
 window.renderSummary    = renderSummary;
 window.showHotelSelector = showHotelSelector;
+window.applyTheme = applyTheme;
 window.selectHotel      = selectHotel;
 window.clearHandover    = clearHandover;
 window.historyUndo      = historyUndo;
